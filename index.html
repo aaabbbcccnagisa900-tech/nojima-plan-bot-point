@@ -816,6 +816,12 @@ body.wide-step .container {
   font-weight: 800;
 }
 
+.tag.point-top {
+  background: #fef3c7;
+  color: #92400e;
+  font-weight: 800;
+}
+
 .rank-badge.top {
   background: #fef3c7;
   color: #92400e;
@@ -3534,8 +3540,11 @@ function planResultCard(
       }
 
       ${
-        plan.student
-        ? `<div class="tags"><span class="tag">学割</span></div>`
+        plan.student || plan.pointTop
+        ? `<div class="tags">
+            ${plan.pointTop ? `<span class="tag point-top">ポイント1位</span>` : ""}
+            ${plan.student ? `<span class="tag">学割</span>` : ""}
+          </div>`
         : ""
       }
 
@@ -3784,6 +3793,32 @@ function twoYearHtml(
       <b>${money(twoYearTotal)}</b>
     </div>
   `;
+
+}
+
+
+/*
+ * 11ページ：表示している候補のうち、ノジマポイントが一番多い
+ * プランに印を付ける（1つだけ）
+ */
+
+function markPointTop(
+  plans
+) {
+
+  const max =
+    Math.max(0, ...plans.map(p => p.pointInfo ? p.pointInfo.points : 0));
+
+  /* 同点のときは2年間の総額が一番安いプランだけ */
+
+  const top =
+    plans
+      .filter(p => max > 0 && p.pointInfo && p.pointInfo.points === max)
+      .sort((a,b) => a.twoYearTotal - b.twoYearTotal)[0];
+
+  plans.forEach(p => {
+    p.pointTop = p === top;
+  });
 
 }
 
@@ -5389,6 +5424,8 @@ function render() {
       const candidates =
         calculatePlans("sim", null);
 
+      markPointTop(candidates);
+
       const visibleCount =
         state.resultsExpanded.sim ? candidates.length : 3;
 
@@ -5437,6 +5474,8 @@ function render() {
 
       const newGroups =
         getCandidateGroupsForScenario("new");
+
+      markPointTop(newGroups.flatMap(group => group.candidates));
 
       const rankedPlans =
         newGroups
@@ -5523,6 +5562,10 @@ function render() {
 
       const changeGroups =
         getCandidateGroupsForScenario("change");
+
+      markPointTop(
+        mnpGroups.concat(changeGroups).flatMap(group => group.candidates)
+      );
 
       /*
        * MNP・機種変更を合わせた2年間の総額の安さランキング
