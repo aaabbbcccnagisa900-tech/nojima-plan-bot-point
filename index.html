@@ -5463,14 +5463,15 @@ function render() {
           </h2>
 
           <p class="description">
-            ご希望のプランをお選びください
+            ご希望のプランをお選びください<br>
+            右上の順位は、2年間の総額が安い順です
           </p>
 
           ${usageTags}
 
           ${candidates.slice(0, visibleCount).map(
             (plan,index) =>
-            planResultCard(plan, index + 1)
+            planResultCard(plan, null, true, index + 1)
           ).join("")}
 
           ${
