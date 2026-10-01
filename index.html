@@ -8121,7 +8121,8 @@ function calculatePlans(
         deviceName,
         upgrade,
         entryPlan,
-        monthlySupportApplied
+        monthlySupportApplied,
+        discountLabels
       );
 
 
@@ -8614,7 +8615,8 @@ function getPointInfo(
   deviceName,
   upgrade,
   entryPlan,
-  monthlySupportApplied
+  monthlySupportApplied,
+  discountLabels
 ) {
 
   if (!isMnpForPoints(plan, scenario)) {
@@ -8712,6 +8714,55 @@ function getPointInfo(
     state.newCards.includes("augold")
   ) {
     items.push({ label: "au PAY ゴールドカード 新規発行", points: 22000 });
+  }
+
+  /* このプランに実際に付いた割引か（名前で判定） */
+
+  const hasDiscount = name =>
+    (discountLabels || []).some(label => label.startsWith(name));
+
+  if (!pending && carrier === "UQ mobile" && !entryPlan) {
+
+    /* コミコミゴールド：コミコミプランバリュー＋au PAYゴールド新規発行 */
+
+    if (
+      plan.name === "コミコミプランバリュー" &&
+      state.newCards.includes("augold")
+    ) {
+      items.push({ label: "コミコミゴールド施策", points: 10000 });
+    }
+
+    /* 自宅セット割（既存の光・でんきでもOK） */
+
+    if (hasDiscount("自宅セット割")) {
+      items.push({ label: "自宅セット割施策", points: 10000 });
+    }
+
+    /* 家族セット割（2回線以上） */
+
+    if (hasDiscount("家族セット割")) {
+      items.push({ label: "UQ家族セット割（複数）施策", points: 10000 });
+    }
+
+  }
+
+  if (!pending && carrier === "docomo") {
+
+    /* ドコモ光の同時申込（信賞店） */
+
+    if (
+      state.newHome === "yes" &&
+      state.homeCarrier !== "docomo"
+    ) {
+      items.push({ label: "ドコモ光 同時申込", points: 20000 });
+    }
+
+    /* スマホデビュープランU15 */
+
+    if (plan.name === "スマホデビュープランU15") {
+      items.push({ label: "スマホデビューU15施策", points: 5000 });
+    }
+
   }
 
   points =
