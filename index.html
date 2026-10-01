@@ -8702,6 +8702,18 @@ function getPointInfo(
 
   }
 
+  /*
+   * au・UQ：MNP＋au PAYゴールドカードの新規発行（ランクアップ含む）22,000pt
+   */
+
+  if (
+    !pending &&
+    (carrier === "au" || carrier === "UQ mobile") &&
+    state.newCards.includes("augold")
+  ) {
+    items.push({ label: "au PAY ゴールドカード 新規発行", points: 22000 });
+  }
+
   points =
     items.reduce((sum, item) => sum + item.points, 0);
 
