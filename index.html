@@ -2392,6 +2392,14 @@ function buildSummaryRows() {
       { docomo: "ドコモ光", au: "auひかり等", softbank: "SoftBank光等", none: "なし・その他" }[state.homeCarrier]
     ],
     ["光回線の新規契約意思", state.newHome === "yes" ? "検討する" : "変更しない"],
+    ["新規契約する光回線",
+      state.newHome === "yes"
+      ? ({ docomo: "ドコモ光", au: "auひかり・コミュファ光・WiMAX", nifty: "nifty光", softbank: "SoftBank光・NURO光等", undecided: "未定" }[state.newHomeType] || "未定")
+      : "-"
+    ],
+    ["でんきの新規申込",
+      { none: "申し込まない", docomo: "ドコモでんき", au: "auでんき", auAllElec: "auでんき（オール電化）" }[state.newDenki] || "申し込まない"
+    ],
     ["au：固定電話", state.auHomePhone === "yes" ? "契約している/する予定" : "契約していない"],
     ["auでんき", state.auDenki === "yes" ? "利用中" : "利用していない"],
     ["ドコモでんき", state.docomoDenki === "yes" ? "利用中" : "利用していない"],
@@ -2566,6 +2574,14 @@ const state = {
 
   homeCarrier: "none",
   newHome: "no",
+
+  /* 新規契約する光回線の種類（docomo／au／nifty／softbank／undecided） */
+
+  newHomeType: "undecided",
+
+  /* でんきの新規申込（none／docomo／au／auAllElec） */
+
+  newDenki: "none",
   auHomePhone: "no",
   auDenki: "no",
 
@@ -2645,6 +2661,8 @@ const PERSON_KEYS = [
   "newCards",
   "homeCarrier",
   "newHome",
+  "newHomeType",
+  "newDenki",
   "auHomePhone",
   "auDenki",
   "docomoDenki",
@@ -2889,6 +2907,8 @@ function answersSignature() {
     state.newCards,
     state.homeCarrier,
     state.newHome,
+    state.newHomeType,
+    state.newDenki,
     state.auHomePhone,
     state.auDenki,
     state.docomoDenki,
@@ -4801,6 +4821,30 @@ function render() {
 
         </div>
 
+        ${
+          state.newHome === "yes"
+          ? `
+            <label class="label">
+              新規契約する光回線の種類
+            </label>
+
+            <div class="choice-grid">
+
+              ${makeChoice("ドコモ光", "", "docomo", "newHomeType", state.newHomeType === "docomo")}
+
+              ${makeChoice("auひかり・コミュファ光・WiMAX", "", "au", "newHomeType", state.newHomeType === "au")}
+
+              ${makeChoice("nifty光", "auスマートバリュー・自宅セット割の対象", "nifty", "newHomeType", state.newHomeType === "nifty")}
+
+              ${makeChoice("SoftBank光・NURO光等", "", "softbank", "newHomeType", state.newHomeType === "softbank")}
+
+              ${makeChoice("未定", "どのキャリアの光セット割も候補に含めます", "undecided", "newHomeType", state.newHomeType === "undecided")}
+
+            </div>
+          `
+          : ""
+        }
+
         <div class="note">
           ※ドコモ光セット割は固定電話が不要で、三親等以内の家族なら最大20回線までシェア可能です。<br>
           ※auスマートバリュー／おうち割光セットは、対象のネット回線＋固定電話のセットが原則条件で、家族含め最大10回線までシェア可能です（対象回線：auひかり・コミュファ光・eo光・ケーブルテレビ・光コラボ・ホームルーター等／SoftBank光・NURO光・SoftBank Air等）。
@@ -4889,6 +4933,23 @@ function render() {
             "docomoDenki",
             state.docomoDenki === "no"
           )}
+
+        </div>
+
+
+        <label class="label">
+          でんきの新規申込
+        </label>
+
+        <div class="choice-grid">
+
+          ${makeChoice("申し込まない", "", "none", "newDenki", state.newDenki === "none")}
+
+          ${makeChoice("ドコモでんき", "", "docomo", "newDenki", state.newDenki === "docomo")}
+
+          ${makeChoice("auでんき", "", "au", "newDenki", state.newDenki === "au")}
+
+          ${makeChoice("auでんき（オール電化）", "", "auAllElec", "newDenki", state.newDenki === "auAllElec")}
 
         </div>
 
@@ -6710,6 +6771,8 @@ function bindEvents() {
               newCards: state.newCards.slice(),
               homeCarrier: state.homeCarrier,
               newHome: state.newHome,
+              newHomeType: state.newHomeType,
+              newDenki: state.newDenki,
               auHomePhone: state.auHomePhone,
               auDenki: state.auDenki,
               docomoDenki: state.docomoDenki,
@@ -6773,6 +6836,8 @@ function bindEvents() {
           state.newCards = kept.newCards;
           state.homeCarrier = kept.homeCarrier;
           state.newHome = kept.newHome;
+          state.newHomeType = kept.newHomeType || "undecided";
+          state.newDenki = kept.newDenki || "none";
           state.auHomePhone = kept.auHomePhone;
           state.auDenki = kept.auDenki;
           state.docomoDenki = kept.docomoDenki;
@@ -6791,6 +6856,8 @@ function bindEvents() {
           state.newCards = [];
           state.homeCarrier = "none";
           state.newHome = "no";
+          state.newHomeType = "undecided";
+          state.newDenki = "none";
           state.auHomePhone = "no";
           state.auDenki = "no";
           state.docomoDenki = "no";
@@ -7925,7 +7992,7 @@ function calculatePlans(
 
     if (
       plan.denkiDiscount &&
-      state.docomoDenki === "yes"
+      (state.docomoDenki === "yes" || state.newDenki === "docomo")
     ) {
 
       communication -=
@@ -7933,6 +8000,7 @@ function calculatePlans(
 
       discountLabels.push(
         "ドコモでんきセット割（▲" + money(plan.denkiDiscount) + "）"
+        + (state.docomoDenki !== "yes" ? " ⚠️" : "")
       );
 
     }
@@ -8716,6 +8784,40 @@ function getPointInfo(
     items.push({ label: "au PAY ゴールドカード 新規発行", points: 22000 });
   }
 
+  /* au：光セット（スマートバリュー加入）・auでんき */
+
+  const hasSmartValue =
+    (discountLabels || []).some(label => label.startsWith("auスマートバリュー"));
+
+  if (!pending && carrier === "au" && hasSmartValue) {
+
+    if (state.newHome === "yes" && state.newHomeType === "nifty") {
+      items.push({ label: "au光セット（nifty光）", points: 10000 });
+    }
+
+    if (state.newHome === "yes" && state.newHomeType === "au") {
+      items.push({ label: "au光セット（auひかり・コミュファ・WiMAX）", points: 15000 });
+    }
+
+  }
+
+  /* au・UQ共通：auでんき（オール電化は30,000pt） */
+
+  if (
+    !pending &&
+    (carrier === "au" || carrier === "UQ mobile")
+  ) {
+
+    if (state.newDenki === "au") {
+      items.push({ label: "auでんき 申込", points: 10000 });
+    }
+
+    if (state.newDenki === "auAllElec") {
+      items.push({ label: "auでんき（オール電化）申込", points: 30000 });
+    }
+
+  }
+
   /* このプランに実際に付いた割引か（名前で判定） */
 
   const hasDiscount = name =>
@@ -8732,10 +8834,47 @@ function getPointInfo(
       items.push({ label: "コミコミゴールド施策", points: 10000 });
     }
 
-    /* 自宅セット割（既存の光・でんきでもOK） */
+    /*
+     * 自宅セット割（既存の光・でんきでもOK、コミコミもOK）
+     * コミコミは料金の割引はないが、自宅セット割の条件を満たせば対象
+     */
 
-    if (hasDiscount("自宅セット割")) {
+    const homeSetEligible =
+      hasDiscount("自宅セット割") ||
+      (
+        plan.name === "コミコミプランバリュー" &&
+        (
+          (
+            (state.homeCarrier === "au" || (state.newHome === "yes" && ["au", "nifty", "undecided"].includes(state.newHomeType))) &&
+            state.auHomePhone === "yes"
+          ) ||
+          state.auDenki === "yes" ||
+          state.newDenki === "au" ||
+          state.newDenki === "auAllElec"
+        )
+      );
+
+    if (homeSetEligible) {
       items.push({ label: "自宅セット割施策", points: 10000 });
+    }
+
+    /* 自宅セット割＋でんきセット割（でんきの新規申込と同時） */
+
+    if (
+      homeSetEligible &&
+      (state.newDenki === "au" || state.newDenki === "auAllElec")
+    ) {
+      items.push({ label: "自宅セット割＋でんき新規 施策", points: 5000 });
+    }
+
+    /* UQ光セット（光の新規契約＋自宅セット割） */
+
+    if (homeSetEligible && state.newHome === "yes" && state.newHomeType === "nifty") {
+      items.push({ label: "UQ光セット（nifty光）", points: 10000 });
+    }
+
+    if (homeSetEligible && state.newHome === "yes" && state.newHomeType === "au") {
+      items.push({ label: "UQ光セット（auひかり・コミュファ・WiMAX）", points: 15000 });
     }
 
     /* 家族セット割（2回線以上） */
@@ -8752,9 +8891,16 @@ function getPointInfo(
 
     if (
       state.newHome === "yes" &&
+      state.newHomeType === "docomo" &&
       state.homeCarrier !== "docomo"
     ) {
       items.push({ label: "ドコモ光 同時申込", points: 20000 });
+    }
+
+    /* ドコモでんきの申込 */
+
+    if (state.newDenki === "docomo") {
+      items.push({ label: "ドコモでんき 申込", points: 20000 });
     }
 
     /* スマホデビュープランU15 */
@@ -9174,8 +9320,23 @@ function getHomeDiscount(
   const alreadyHas =
     state.homeCarrier === group;
 
+  /* 新規契約する光回線の種類が、このキャリアの光セット割の対象か */
+
+  const NEW_HOME_GROUPS = {
+    docomo: ["docomo"],
+    au: ["au"],
+    nifty: ["au"],
+    softbank: ["softbank"],
+    undecided: ["docomo", "au", "softbank"]
+  };
+
   const willingToGet =
-    state.newHome === "yes";
+    state.newHome === "yes" &&
+    (NEW_HOME_GROUPS[state.newHomeType || "undecided"] || []).includes(group);
+
+  const newAuDenki =
+    state.newDenki === "au" ||
+    state.newDenki === "auAllElec";
 
 
   /*
@@ -9192,7 +9353,7 @@ function getHomeDiscount(
 
   const auDenkiPath =
     group === "au" &&
-    state.auDenki === "yes";
+    (state.auDenki === "yes" || newAuDenki);
 
 
   if (group === "au") {
@@ -9247,7 +9408,9 @@ function getHomeDiscount(
       : "自宅セット割（でんき）";
 
     isNew =
-      auInternetPath && !alreadyHas;
+      auInternetPath
+      ? !alreadyHas
+      : state.auDenki !== "yes";
 
   }
 
