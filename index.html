@@ -922,6 +922,56 @@ body.wide-step .container {
   font-weight: 900;
 }
 
+/* 診断結果：入口プラン → 最終プラン */
+
+.plan-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+
+.plan-flow-box {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.plan-flow-box.final {
+  border: 2px solid var(--black);
+  background: #ffffff;
+}
+
+.plan-flow-when {
+  color: var(--sub);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.plan-flow-name {
+  margin-top: 2px;
+  font-size: 14px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.plan-flow-price {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #374151;
+}
+
+.plan-flow-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--black);
+  font-size: 20px;
+  font-weight: 900;
+}
+
 /* 入口プラン（ご契約の流れ） */
 
 .entry-box {
@@ -5674,14 +5724,48 @@ function render() {
 
           </div>
 
-          <div class="plan-name">
-            ${best.carrier} ${best.name}
-            ${
-              best.device
-              ? `<span class="tag">${best.device}</span>`
-              : ""
-            }
-          </div>
+          ${
+            best.entryPlan
+            ? `
+              <div class="plan-flow">
+
+                <div class="plan-flow-box">
+                  <div class="plan-flow-when">1ヶ月目（入口のプラン）</div>
+                  <div class="plan-flow-name">${planLabel(best.entryPlan.carrier, best.entryPlan.name)}</div>
+                  <div class="plan-flow-price">通信料金 約${money(best.entryPlan.communication)}/月</div>
+                </div>
+
+                <div class="plan-flow-arrow">→</div>
+
+                <div class="plan-flow-box final">
+                  <div class="plan-flow-when">翌月から</div>
+                  <div class="plan-flow-name">${planLabel(best.carrier, best.name)}</div>
+                  <div class="plan-flow-price">通信料金 ${money(best.communication)}/月</div>
+                </div>
+
+              </div>
+
+              <div style="font-size:10px;color:var(--sub);">
+                理由：${best.entryPlan.reason}
+              </div>
+
+              ${
+                best.device
+                ? `<div class="tags"><span class="tag">${best.device}</span></div>`
+                : ""
+              }
+            `
+            : `
+              <div class="plan-name">
+                ${best.carrier} ${best.name}
+                ${
+                  best.device
+                  ? `<span class="tag">${best.device}</span>`
+                  : ""
+                }
+              </div>
+            `
+          }
 
           <div class="total">
             ${money(grandTotal)}
@@ -5788,8 +5872,6 @@ function render() {
             }
 
           </div>
-
-          ${entryBoxHtml(best)}
 
           ${pointBoxHtml(best)}
 
@@ -8414,7 +8496,7 @@ function getPlanIndex(
 /* 分割リセットで店頭でいただく金額（頭金＋特典利用料） */
 
 const RESET_UPFRONT = {
-  downPayment: 11000,
+  applicationFee: 11000,
   benefitFee: 11000
 };
 
@@ -8594,11 +8676,38 @@ function getPointInfo(
 
   const upfront =
     scenario === "mnp"
-    ? RESET_UPFRONT.downPayment + RESET_UPFRONT.benefitFee
+    ? RESET_UPFRONT.applicationFee + RESET_UPFRONT.benefitFee
     : 0;
+
+  /* ポイントの内訳 */
+
+  const items = [];
+
+  if (points || label) {
+    items.push({ label: label, points: points });
+  }
+
+  /*
+   * ドコモ：MNP（①②③の条件）＋dカードの新規発行・支払い設定
+   * GOLD 20,000pt／通常のdカード 5,000pt（新規発行のみ）
+   */
+
+  if (!pending && carrier === "docomo") {
+
+    if (state.newCards.includes("dgold")) {
+      items.push({ label: "dカード GOLD 新規発行・支払い設定", points: 20000 });
+    } else if (state.newCards.includes("d")) {
+      items.push({ label: "dカード 新規発行・支払い設定", points: 5000 });
+    }
+
+  }
+
+  points =
+    items.reduce((sum, item) => sum + item.points, 0);
 
   return {
     points: points,
+    items: items,
     label: label,
     pending: pending,
     upfront: upfront,
@@ -8636,12 +8745,38 @@ function pointBoxHtml(
 
   }
 
+  const pt = n =>
+    n.toLocaleString("ja-JP") + "pt";
+
   return `
     <div class="point-box">
 
-      <div class="row">
-        <span>ノジマポイント<br><span style="font-size:10px;">${info.label}</span></span>
-        <span class="big">${info.points.toLocaleString("ja-JP")}pt</span>
+      ${
+        info.upfront
+        ? `
+          <div class="row">
+            <span>
+              分割リセット申込料＋特典利用料<br>
+              <span style="font-size:10px;">
+                申込料${money(RESET_UPFRONT.applicationFee)}＋特典利用料${money(RESET_UPFRONT.benefitFee)}
+              </span>
+            </span>
+            <span class="big">${money(info.upfront)}</span>
+          </div>
+        `
+        : ""
+      }
+
+      ${(info.items || []).map(item => `
+        <div class="row">
+          <span>${item.label}</span>
+          <span><b>${pt(item.points)}</b></span>
+        </div>
+      `).join("")}
+
+      <div class="row" style="border-top:1px dashed #fde68a;margin-top:2px;padding-top:4px;">
+        <span>ノジマポイント 合計</span>
+        <span class="big">${pt(info.points)}</span>
       </div>
 
       ${
@@ -8650,9 +8785,6 @@ function pointBoxHtml(
           <div class="row">
             <span>本日店頭でのお支払い（ポイント充当後）</span>
             <span class="big">${money(info.todayPay)}</span>
-          </div>
-          <div style="font-size:10px;">
-            頭金${money(RESET_UPFRONT.downPayment)}＋特典利用料${money(RESET_UPFRONT.benefitFee)}をポイントで充当
           </div>
         `
         : ""
