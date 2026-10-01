@@ -897,6 +897,44 @@ body.wide-step .container {
   font-weight: 800;
 }
 
+/* ノジマポイント・本日のお支払い */
+
+.point-box {
+  margin-top: 8px;
+  padding: 9px 11px;
+  border: 1px solid #fde68a;
+  border-radius: 12px;
+  background: #fffbeb;
+  color: #78350f;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.point-box .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.point-box .big {
+  font-size: 15px;
+  font-weight: 900;
+}
+
+/* 入口プラン（ご契約の流れ） */
+
+.entry-box {
+  margin-top: 8px;
+  padding: 9px 11px;
+  border: 1px solid #c7d2fe;
+  border-radius: 12px;
+  background: #eef2ff;
+  color: #312e81;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
 .jump-notice {
   margin-bottom: 8px;
   padding: 9px 11px;
@@ -2347,6 +2385,30 @@ function buildSummaryRows() {
 
   }
 
+  if (best.entryPlan) {
+
+    rows.push(
+      ["ご契約の流れ", planLabel(best.entryPlan.carrier, best.entryPlan.name) + " → 翌月から " + planLabel(best.carrier, best.name)]
+    );
+
+  }
+
+  if (best.pointInfo && !best.pointInfo.pending) {
+
+    rows.push(
+      ["ノジマポイント", best.pointInfo.points.toLocaleString("ja-JP") + "pt"]
+    );
+
+    if (best.pointInfo.upfront) {
+
+      rows.push(
+        ["本日店頭でのお支払い", money(best.pointInfo.todayPay)]
+      );
+
+    }
+
+  }
+
   return rows;
 
 }
@@ -2480,6 +2542,10 @@ const state = {
   warrantyChoice: null,
   warrantyOption: "none",
 
+  /* auの端末MNP特典：買取ポイント(points)か月々サポート(monthly) */
+
+  auBenefit: "points",
+
   skipCardHomeSteps: false,
 
   /*
@@ -2541,6 +2607,7 @@ const PERSON_KEYS = [
   "callOption",
   "warrantyChoice",
   "warrantyOption",
+  "auBenefit",
   "skipCardHomeSteps",
   "maxStepReached",
   "jumpSnapshot"
@@ -2783,7 +2850,8 @@ function answersSignature() {
       : null,
     state.callOption,
     state.warrantyChoice,
-    state.warrantyOption
+    state.warrantyOption,
+    state.auBenefit
   ]);
 
 }
@@ -3427,6 +3495,10 @@ function planResultCard(
         }
 
       </div>
+
+      ${entryBoxHtml(plan)}
+
+      ${pointBoxHtml(plan)}
 
       ${
         plan.discountLabels.some(l => l.includes("⚠️"))
@@ -4871,7 +4943,7 @@ function render() {
               return makeChoice(
                 device,
                 device === "iPhone 17"
-                  ? "YM・UQへMNPする場合は利用不可"
+                  ? "YM・UQへMNPの場合は入口プランを変えてご案内"
                   : "",
                 device,
                 "devices",
@@ -5006,6 +5078,27 @@ function render() {
   ========================= */
 
   if (state.step === 10) {
+
+    /* 特典の選択などで金額が変わるので、選択済みのプランを計算し直す */
+
+    if (state.selectedPlan) {
+
+      const selected =
+        state.selectedPlan;
+
+      const fresh =
+        calculatePlans(selected.scenario, selected.device).find(
+          p =>
+            p.carrier === selected.carrier &&
+            p.name === selected.name &&
+            p.device === selected.device
+        );
+
+      if (fresh) {
+        state.selectedPlan = fresh;
+      }
+
+    }
 
     const usageTags = `
       <div class="tags">
@@ -5242,7 +5335,7 @@ function render() {
             label === "MNP" &&
             state.devices.includes("iPhone 17") &&
             !["Y!mobile", "UQ mobile"].includes(state.currentCarrier)
-            ? "（iPhone 17はY!mobile・UQへのMNPでは購入できません）"
+            ? ""
             : ""
           }
         </div>
@@ -5283,6 +5376,8 @@ function render() {
               端末代：分割リセット
             </span>
           </div>
+
+          ${auBenefitChoiceHtml(mnpGroups)}
 
           ${renderGroups(mnpGroups, "mnp")}
 
@@ -5693,6 +5788,10 @@ function render() {
             }
 
           </div>
+
+          ${entryBoxHtml(best)}
+
+          ${pointBoxHtml(best)}
 
           ${
             best.discountLabels.some(l => l.includes("⚠️"))
@@ -7304,24 +7403,31 @@ function calculatePlans(
 
 
     /*
-     * MNP＋端末
-     *
-     * YM / UQへMNPする場合
-     * iPhone17は不可
+     * 入口プランを探しているときは、そのキャリアの
+     * ポイント対象プランだけを計算する
      */
 
     if (
-      scenario === "mnp" &&
-      deviceName === "iPhone 17" &&
+      entrySearchCarrier !== null &&
       (
-        plan.carrier === "Y!mobile" ||
-        plan.carrier === "UQ mobile"
+        plan.carrier !== entrySearchCarrier ||
+        POINT_EXCLUDED_PLANS.includes(plan.name)
       )
     ) {
 
       return;
 
     }
+
+
+    /*
+     * MNP＋端末
+     * iPhone 17はYM・UQへのMNPでは購入できないため、
+     * 入口プラン（au・SoftBank）を提案する（下の entryReason）
+     */
+
+    const entryReason =
+      getEntryReason(plan, scenario, deviceName);
 
 
     /*
@@ -7671,6 +7777,40 @@ function calculatePlans(
     });
 
 
+    /*
+     * au月々サポート（▲2,640円×6ヶ月）
+     * 分割リセット＋バリューリンクプラン。翌月のプラン変更はNGのため、
+     * 入口プランを使う流れでは選べない
+     */
+
+    let monthlySupportApplied = false;
+
+    if (
+      scenario === "mnp" &&
+      plan.carrier === "au" &&
+      plan.name === "au バリューリンクプラン" &&
+      state.auBenefit === "monthly" &&
+      !entryReason &&
+      entrySearchCarrier === null
+    ) {
+
+      communication -= 2640;
+
+      temporaryDiscounts.push({
+        amount: 2640,
+        fromMonth: 1,
+        toMonth: 6
+      });
+
+      discountLabels.push(
+        "au月々サポート（6ヶ月）（▲2,640円）"
+      );
+
+      monthlySupportApplied = true;
+
+    }
+
+
     /* アップグレード割（UQ→au、Y!mobile→SoftBank） */
 
     if (
@@ -7774,6 +7914,47 @@ function calculatePlans(
     }
 
 
+    /* au：iPhone 18 Proは特別施策で分割リセット1円 */
+
+    if (
+      scenario === "mnp" &&
+      plan.carrier === "au" &&
+      deviceName === "iPhone 18 Pro"
+    ) {
+
+      device = 1;
+
+    }
+
+
+    /*
+     * 入口プラン：1ヶ月目は入口のプランで契約し、
+     * 翌月から目的のプランに変更する（端末は入口のキャリアで購入）
+     */
+
+    let entryPlan = null;
+
+    if (entryReason) {
+
+      const entry =
+        findEntryPlan(entryReason.carrier, scenario, deviceName);
+
+      if (entry) {
+
+        entryPlan = {
+          carrier: entry.carrier,
+          name: entry.name,
+          communication: entry.communication,
+          reason: entryReason.reason
+        };
+
+        device = entry.deviceCost;
+
+      }
+
+    }
+
+
     const total =
       communication + device;
 
@@ -7845,6 +8026,22 @@ function calculatePlans(
       twoYearTotal += communicationAt(month) + device;
     }
 
+    /* 1ヶ月目は入口プランの料金 */
+
+    if (entryPlan) {
+      twoYearTotal += entryPlan.communication - communicationAt(1);
+    }
+
+    const pointInfo =
+      getPointInfo(
+        plan,
+        scenario,
+        deviceName,
+        upgrade,
+        entryPlan,
+        monthlySupportApplied
+      );
+
 
     result.push({
 
@@ -7895,6 +8092,12 @@ function calculatePlans(
 
       missedDiscounts:
         missedDiscounts,
+
+      entryPlan:
+        entryPlan,
+
+      pointInfo:
+        pointInfo,
 
       planNote:
         plan.planNote || null
@@ -8196,6 +8399,361 @@ function getPlanIndex(
   return (
     plan.limits.length - 1
   );
+
+}
+
+
+/* =========================================================
+   ノジマポイント（MNP施策）
+
+   施策表（ドコモ 9/15〜30、au・UQ 9/22〜30・信賞店）より、
+   MNPで1台ごとに付くポイントだけを扱う。
+   SoftBank・Y!mobileは施策表をもらってから追加する。
+========================================================= */
+
+/* 分割リセットで店頭でいただく金額（頭金＋特典利用料） */
+
+const RESET_UPFRONT = {
+  downPayment: 11000,
+  benefitFee: 11000
+};
+
+/* ポイントの条件で対象外になるプラン（入口プランを変える） */
+
+const POINT_EXCLUDED_PLANS = [
+  "スマホミニプラン＋"
+];
+
+/* 入口プランを探している間は、そのキャリアだけを計算する */
+
+let entrySearchCarrier = null;
+
+/* ポイントの対象になるMNPか（SIMのみは他社からの乗り換えのとき） */
+
+function isMnpForPoints(
+  plan,
+  scenario
+) {
+
+  if (scenario === "mnp") {
+    return true;
+  }
+
+  return (
+    scenario === "sim" &&
+    !!state.currentCarrier &&
+    !isSameCarrier(plan.carrier)
+  );
+
+}
+
+/*
+ * 入口プランが必要な理由
+ * ・iPhone 17はUQ・Y!mobileへのMNPでは購入できない
+ *   → au・SoftBankでMNP契約し、翌月にUQ・Y!mobileへ変更
+ * ・ポイントの条件で対象外のプラン（スマホミニプラン＋）
+ *   → 同じキャリアの対象プランで契約し、翌月に変更
+ */
+
+function getEntryReason(
+  plan,
+  scenario,
+  deviceName
+) {
+
+  if (entrySearchCarrier !== null) {
+    return null;
+  }
+
+  if (
+    scenario === "mnp" &&
+    deviceName === "iPhone 17" &&
+    (
+      plan.carrier === "UQ mobile" ||
+      plan.carrier === "Y!mobile"
+    )
+  ) {
+
+    return {
+      carrier: plan.carrier === "UQ mobile" ? "au" : "SoftBank",
+      reason: "iPhone 17は" + plan.carrier + "へのMNPでは購入できないため"
+    };
+
+  }
+
+  if (
+    POINT_EXCLUDED_PLANS.includes(plan.name) &&
+    isMnpForPoints(plan, scenario)
+  ) {
+
+    return {
+      carrier: plan.carrier,
+      reason: "ポイントの条件で" + plan.name + "は対象外のため"
+    };
+
+  }
+
+  return null;
+
+}
+
+/* 入口プラン：そのキャリアで、ギガ数に合う一番安いプラン */
+
+function findEntryPlan(
+  carrier,
+  scenario,
+  deviceName
+) {
+
+  entrySearchCarrier = carrier;
+
+  let list = [];
+
+  try {
+    list = calculatePlans(scenario, deviceName);
+  } finally {
+    entrySearchCarrier = null;
+  }
+
+  list.sort((a,b) => a.communication - b.communication);
+
+  return list[0] || null;
+
+}
+
+/*
+ * ポイントと本日のお支払い
+ * pending：施策表がまだないキャリア
+ */
+
+function getPointInfo(
+  plan,
+  scenario,
+  deviceName,
+  upgrade,
+  entryPlan,
+  monthlySupportApplied
+) {
+
+  if (!isMnpForPoints(plan, scenario)) {
+    return null;
+  }
+
+  const carrier =
+    entryPlan ? entryPlan.carrier : plan.carrier;
+
+  let points = 0;
+  let label = "";
+  let pending = false;
+
+  if (scenario === "sim") {
+
+    if (["docomo", "au", "UQ mobile"].includes(carrier)) {
+      points = 20000;
+      label = "SIMのみMNP";
+    } else {
+      pending = true;
+    }
+
+  } else if (carrier === "docomo") {
+
+    points = 22000;
+    label = "分割リセット施策";
+
+    if (["iPhone 16", "iPhone 17e"].includes(deviceName)) {
+      points += 11000;
+      label += "（iPhone 16・17eは+11,000pt）";
+    }
+
+  } else if (carrier === "UQ mobile") {
+
+    points = 22000;
+    label = "UQ買取施策（分割リセット）";
+
+  } else if (carrier === "au") {
+
+    if (deviceName === "iPhone 18 Pro") {
+      points = 23736;
+      label = "iPhone 18 Pro 特別分割リセット施策";
+    } else if (upgrade && !entryPlan) {
+      points = 22000;
+      label = "au買取施策（アップグレード）";
+    } else if (monthlySupportApplied) {
+      points = 0;
+      label = "au月々サポートを選択（ポイントなし）";
+    } else {
+      points = 11000;
+      label = "au買取施策（分割リセット）";
+    }
+
+  } else {
+
+    pending = true;
+
+  }
+
+  const upfront =
+    scenario === "mnp"
+    ? RESET_UPFRONT.downPayment + RESET_UPFRONT.benefitFee
+    : 0;
+
+  return {
+    points: points,
+    label: label,
+    pending: pending,
+    upfront: upfront,
+    todayPay: Math.max(0, upfront - points),
+    leftover: Math.max(0, points - upfront)
+  };
+
+}
+
+/* ポイント・本日のお支払いの表示 */
+
+function pointBoxHtml(
+  plan
+) {
+
+  const info =
+    plan.pointInfo;
+
+  if (!info) {
+    return "";
+  }
+
+  if (info.pending) {
+
+    return `
+      <div class="point-box">
+        ${plan.entryPlan ? plan.entryPlan.carrier : plan.carrier}のポイント施策は準備中です
+        ${
+          info.upfront
+          ? `<br>本日店頭でのお支払い（頭金＋特典利用料）：${money(info.upfront)}`
+          : ""
+        }
+      </div>
+    `;
+
+  }
+
+  return `
+    <div class="point-box">
+
+      <div class="row">
+        <span>ノジマポイント<br><span style="font-size:10px;">${info.label}</span></span>
+        <span class="big">${info.points.toLocaleString("ja-JP")}pt</span>
+      </div>
+
+      ${
+        info.upfront
+        ? `
+          <div class="row">
+            <span>本日店頭でのお支払い（ポイント充当後）</span>
+            <span class="big">${money(info.todayPay)}</span>
+          </div>
+          <div style="font-size:10px;">
+            頭金${money(RESET_UPFRONT.downPayment)}＋特典利用料${money(RESET_UPFRONT.benefitFee)}をポイントで充当
+          </div>
+        `
+        : ""
+      }
+
+      ${
+        info.leftover
+        ? `
+          <div class="row">
+            <span>残りのポイント</span>
+            <span><b>${info.leftover.toLocaleString("ja-JP")}pt</b></span>
+          </div>
+        `
+        : ""
+      }
+
+    </div>
+  `;
+
+}
+
+/* 「au au バリューリンクプラン」のようにキャリア名が重ならないように */
+
+function planLabel(
+  carrier,
+  name
+) {
+
+  return name.startsWith(carrier)
+    ? name
+    : carrier + " " + name;
+
+}
+
+/* 入口プラン（ご契約の流れ）の表示 */
+
+function entryBoxHtml(
+  plan
+) {
+
+  const entry =
+    plan.entryPlan;
+
+  if (!entry) {
+    return "";
+  }
+
+  return `
+    <div class="entry-box">
+      <b>ご契約の流れ</b><br>
+      ① ${planLabel(entry.carrier, entry.name)}で契約（1ヶ月目 約${money(entry.communication)}）<br>
+      ② 翌月から ${planLabel(plan.carrier, plan.name)} に変更<br>
+      <span style="font-size:10px;">理由：${entry.reason}</span>
+    </div>
+  `;
+
+}
+
+/* auの端末MNP特典の選択（候補にauのMNPがあるとき） */
+
+function auBenefitChoiceHtml(
+  groups
+) {
+
+  const hasAu =
+    groups.some(group =>
+      group.candidates.some(plan =>
+        plan.carrier === "au" ||
+        (plan.entryPlan && plan.entryPlan.carrier === "au")
+      )
+    );
+
+  if (!hasAu) {
+    return "";
+  }
+
+  return `
+    <label class="label">
+      auの端末購入特典（MNP）
+    </label>
+
+    <div class="choice-grid">
+
+      ${makeChoice(
+        "買取ポイント 11,000pt",
+        "本日のお支払いに充当",
+        "points",
+        "auBenefit",
+        state.auBenefit !== "monthly"
+      )}
+
+      ${makeChoice(
+        "月々サポート",
+        "▲2,640円×6ヶ月（バリューリンクのみ）",
+        "monthly",
+        "auBenefit",
+        state.auBenefit === "monthly"
+      )}
+
+    </div>
+  `;
 
 }
 
