@@ -1827,6 +1827,36 @@ const WARRANTY_OPTIONS = {
   double: { label: "バッテリー＋データ復旧", monthly: 1000, lump: 44000 }
 };
 
+/*
+ * でんきの新規契約：このキャリアグループで使う種類
+ * 「未定」はドコモならドコモでんき、au・UQならauでんきとして扱う
+ */
+
+function newDenkiType(
+  group
+) {
+
+  if (state.newDenkiWill !== "yes") {
+    return "none";
+  }
+
+  const type =
+    state.newDenki || "undecided";
+
+  if (type === "undecided") {
+
+    return group === "docomo"
+      ? "docomo"
+      : group === "au"
+        ? "au"
+        : "none";
+
+  }
+
+  return type;
+
+}
+
 /* 端末を購入する相談か（端末を変えたい・新規契約） */
 
 function hasDevice() {
@@ -2398,7 +2428,9 @@ function buildSummaryRows() {
       : "-"
     ],
     ["でんきの新規申込",
-      { none: "申し込まない", docomo: "ドコモでんき", au: "auでんき", auAllElec: "auでんき（オール電化）" }[state.newDenki] || "申し込まない"
+      state.newDenkiWill === "yes"
+      ? "検討する（" + ({ docomo: "ドコモでんき", au: "auでんき", auAllElec: "auでんき・オール電化", undecided: "未定" }[state.newDenki] || "未定") + "）"
+      : "変更しない"
     ],
     ["au：固定電話", state.auHomePhone === "yes" ? "契約している/する予定" : "契約していない"],
     ["auでんき", state.auDenki === "yes" ? "利用中" : "利用していない"],
@@ -2579,9 +2611,11 @@ const state = {
 
   newHomeType: "undecided",
 
-  /* でんきの新規申込（none／docomo／au／auAllElec） */
+  /* でんきの新規契約：検討する(yes)／変更しない(no) と種類（docomo／au／auAllElec／undecided） */
 
-  newDenki: "none",
+  newDenkiWill: "no",
+
+  newDenki: "undecided",
   auHomePhone: "no",
   auDenki: "no",
 
@@ -2662,6 +2696,7 @@ const PERSON_KEYS = [
   "homeCarrier",
   "newHome",
   "newHomeType",
+  "newDenkiWill",
   "newDenki",
   "auHomePhone",
   "auDenki",
@@ -2908,6 +2943,7 @@ function answersSignature() {
     state.homeCarrier,
     state.newHome,
     state.newHomeType,
+    state.newDenkiWill,
     state.newDenki,
     state.auHomePhone,
     state.auDenki,
@@ -4938,20 +4974,38 @@ function render() {
 
 
         <label class="label">
-          でんきの新規申込
+          でんきの新規契約について
         </label>
 
         <div class="choice-grid">
 
-          ${makeChoice("申し込まない", "", "none", "newDenki", state.newDenki === "none")}
+          ${makeChoice("検討する", "新規申込", "yes", "newDenkiWill", state.newDenkiWill === "yes")}
 
-          ${makeChoice("ドコモでんき", "", "docomo", "newDenki", state.newDenki === "docomo")}
-
-          ${makeChoice("auでんき", "", "au", "newDenki", state.newDenki === "au")}
-
-          ${makeChoice("auでんき（オール電化）", "", "auAllElec", "newDenki", state.newDenki === "auAllElec")}
+          ${makeChoice("変更しない", "現在の契約を維持", "no", "newDenkiWill", state.newDenkiWill !== "yes")}
 
         </div>
+
+        ${
+          state.newDenkiWill === "yes"
+          ? `
+            <label class="label">
+              新規契約するでんきの種類
+            </label>
+
+            <div class="choice-grid">
+
+              ${makeChoice("ドコモでんき", "", "docomo", "newDenki", state.newDenki === "docomo")}
+
+              ${makeChoice("auでんき", "", "au", "newDenki", state.newDenki === "au")}
+
+              ${makeChoice("auでんき（オール電化）", "", "auAllElec", "newDenki", state.newDenki === "auAllElec")}
+
+              ${makeChoice("未定", "ドコモ・au両方の候補に含めます", "undecided", "newDenki", (state.newDenki || "undecided") === "undecided")}
+
+            </div>
+          `
+          : ""
+        }
 
 
         <label class="label">
@@ -6772,6 +6826,7 @@ function bindEvents() {
               homeCarrier: state.homeCarrier,
               newHome: state.newHome,
               newHomeType: state.newHomeType,
+              newDenkiWill: state.newDenkiWill,
               newDenki: state.newDenki,
               auHomePhone: state.auHomePhone,
               auDenki: state.auDenki,
@@ -6837,7 +6892,8 @@ function bindEvents() {
           state.homeCarrier = kept.homeCarrier;
           state.newHome = kept.newHome;
           state.newHomeType = kept.newHomeType || "undecided";
-          state.newDenki = kept.newDenki || "none";
+          state.newDenkiWill = kept.newDenkiWill || "no";
+          state.newDenki = kept.newDenki || "undecided";
           state.auHomePhone = kept.auHomePhone;
           state.auDenki = kept.auDenki;
           state.docomoDenki = kept.docomoDenki;
@@ -6857,7 +6913,8 @@ function bindEvents() {
           state.homeCarrier = "none";
           state.newHome = "no";
           state.newHomeType = "undecided";
-          state.newDenki = "none";
+          state.newDenkiWill = "no";
+          state.newDenki = "undecided";
           state.auHomePhone = "no";
           state.auDenki = "no";
           state.docomoDenki = "no";
@@ -7992,7 +8049,7 @@ function calculatePlans(
 
     if (
       plan.denkiDiscount &&
-      (state.docomoDenki === "yes" || state.newDenki === "docomo")
+      (state.docomoDenki === "yes" || newDenkiType("docomo") === "docomo")
     ) {
 
       communication -=
@@ -8808,11 +8865,11 @@ function getPointInfo(
     (carrier === "au" || carrier === "UQ mobile")
   ) {
 
-    if (state.newDenki === "au") {
+    if (newDenkiType("au") === "au") {
       items.push({ label: "auでんき 申込", points: 10000 });
     }
 
-    if (state.newDenki === "auAllElec") {
+    if (newDenkiType("au") === "auAllElec") {
       items.push({ label: "auでんき（オール電化）申込", points: 30000 });
     }
 
@@ -8849,8 +8906,7 @@ function getPointInfo(
             state.auHomePhone === "yes"
           ) ||
           state.auDenki === "yes" ||
-          state.newDenki === "au" ||
-          state.newDenki === "auAllElec"
+          newDenkiType("au") !== "none"
         )
       );
 
@@ -8862,7 +8918,7 @@ function getPointInfo(
 
     if (
       homeSetEligible &&
-      (state.newDenki === "au" || state.newDenki === "auAllElec")
+      newDenkiType("au") !== "none"
     ) {
       items.push({ label: "自宅セット割＋でんき新規 施策", points: 5000 });
     }
@@ -8899,7 +8955,7 @@ function getPointInfo(
 
     /* ドコモでんきの申込 */
 
-    if (state.newDenki === "docomo") {
+    if (newDenkiType("docomo") === "docomo") {
       items.push({ label: "ドコモでんき 申込", points: 20000 });
     }
 
@@ -9335,8 +9391,7 @@ function getHomeDiscount(
     (NEW_HOME_GROUPS[state.newHomeType || "undecided"] || []).includes(group);
 
   const newAuDenki =
-    state.newDenki === "au" ||
-    state.newDenki === "auAllElec";
+    newDenkiType("au") !== "none";
 
 
   /*
