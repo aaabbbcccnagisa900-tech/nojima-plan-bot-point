@@ -816,10 +816,25 @@ body.wide-step .container {
   font-weight: 800;
 }
 
-.tag.point-top {
+/* 右上のバッジ（安さ・ポイント）を縦に並べる */
+
+.badge-stack {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.badge-stack .rank-badge {
+  position: static;
+}
+
+.rank-badge.point {
   background: #fef3c7;
   color: #92400e;
-  font-weight: 800;
 }
 
 .rank-badge.top {
@@ -3500,11 +3515,24 @@ function planResultCard(
 
   return `
 
-    <div class="result ${priceRank ? "has-badge" : ""}">
+    <div class="result ${priceRank || plan.pointTop ? "has-badge" : ""}">
 
       ${
-        priceRank
-        ? `<div class="rank-badge ${priceRank === 1 ? "top" : ""}">安さ ${priceRank}位</div>`
+        priceRank || plan.pointTop
+        ? `
+          <div class="badge-stack">
+            ${
+              priceRank
+              ? `<div class="rank-badge ${priceRank === 1 ? "top" : ""}">安さ ${priceRank}位</div>`
+              : ""
+            }
+            ${
+              plan.pointTop
+              ? `<div class="rank-badge point">ポイント1位</div>`
+              : ""
+            }
+          </div>
+        `
         : ""
       }
 
@@ -3540,11 +3568,8 @@ function planResultCard(
       }
 
       ${
-        plan.student || plan.pointTop
-        ? `<div class="tags">
-            ${plan.pointTop ? `<span class="tag point-top">ポイント1位</span>` : ""}
-            ${plan.student ? `<span class="tag">学割</span>` : ""}
-          </div>`
+        plan.student
+        ? `<div class="tags"><span class="tag">学割</span></div>`
         : ""
       }
 
