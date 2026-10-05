@@ -1734,12 +1734,15 @@ const DEVICES = {
     resetByCarrier: { "docomo": 2980, "au": 2200 }
   },
 
-  /* auは条件付き（特別分割リセット施策）で月1円 */
+  /*
+   * au：条件付き（特別分割リセット施策）で月1円
+   * SoftBank：条件付き（SB信賞施策：分割リセット申込み＆256GBで割賦下げ）で月1円
+   */
 
   "iPhone 18 Pro": {
     price: 220000,
     reset: 1000,
-    resetByCarrier: { "docomo": 990, "au": 1, "SoftBank": 990 }
+    resetByCarrier: { "docomo": 990, "au": 1, "SoftBank": 1 }
   },
 
   "iPhone 18 Pro Max": {
@@ -5534,7 +5537,7 @@ function render() {
             金額を並べて比較できます。<br><br>
 
             MNP：分割リセット（無印・eモデルは前半24回が実質1円/月。<br>
-            iPhone 17 Proはドコモ2,980円・au2,200円、iPhone 18 Proはドコモ・SoftBank990円・au1円（条件付き）。<br>
+            iPhone 17 Proはドコモ2,980円・au2,200円、iPhone 18 Proはドコモ990円・au・SoftBank1円（条件付き）。<br>
             それ以外は概算で月1,000円。返却で残額免除）<br>
             機種変更：通常分割（端末代を月々に加算）<br><br>
 
@@ -5737,6 +5740,8 @@ function render() {
           </p>
 
           ${usageTags}
+
+          ${mnpBenefitChoiceHtml([{ candidates: candidates }], true)}
 
           ${candidates.slice(0, visibleCount).map(
             (plan,index) =>
@@ -8587,13 +8592,15 @@ function calculatePlans(
     let monthlySupportApplied = false;
 
     const monthlySupport =
-      scenario === "mnp"
-      ? (MONTHLY_SUPPORT.find(rule =>
-          rule.carrier === plan.carrier &&
-          rule.plans.includes(plan.name) &&
-          state[rule.stateKey] === "monthly"
-        ) || null)
-      : null;
+      MONTHLY_SUPPORT.find(rule =>
+        rule.carrier === plan.carrier &&
+        rule.plans.includes(plan.name) &&
+        state[rule.stateKey] === "monthly" &&
+        (
+          scenario === "mnp" ||
+          (scenario === "sim" && rule.allowSim && isMnpForPoints(plan, scenario))
+        )
+      ) || null;
 
     if (monthlySupport) {
 
@@ -9207,8 +9214,9 @@ const MONTHLY_SUPPORT = [
     label: "SoftBank月々サポート"
   },
   {
-    /* YM施策①〜④とは併用不可。BYOD申込み必須 */
+    /* YM施策①〜④とは併用不可。BYOD申込み必須。信賞店はSIMのみでも可 */
     carrier: "Y!mobile",
+    allowSim: true,
     plans: ["シンプル3 M", "シンプル3 L"],
     stateKey: "ymBenefit",
     amount: 1408,
@@ -9310,7 +9318,13 @@ function getPointInfo(
     /* Y!mobile：増量オプション加入＋シンプル3 M/L */
 
     if (carrier === "Y!mobile" && YM_POINT_PLANS.includes(plan.name)) {
-      add("SIMのみMNP（増量オプション加入）", 20000);
+
+      if (monthlySupportApplied) {
+        add("Y!mobile月々サポートを選択（ポイントなし）", 0);
+      } else {
+        add("SIMのみMNP（増量オプション加入）", 20000);
+      }
+
     }
 
   } else if (carrier === "docomo") {
@@ -9689,7 +9703,8 @@ function planLabel(
  */
 
 function mnpBenefitChoiceHtml(
-  groups
+  groups,
+  isSim = false
 ) {
 
   const hasCarrier = carrier =>
@@ -9699,7 +9714,7 @@ function mnpBenefitChoiceHtml(
 
   let html = "";
 
-  if (hasCarrier("au")) {
+  if (!isSim && hasCarrier("au")) {
 
     html += `
       <label class="label">
@@ -9729,7 +9744,7 @@ function mnpBenefitChoiceHtml(
 
   }
 
-  if (hasCarrier("SoftBank")) {
+  if (!isSim && hasCarrier("SoftBank")) {
 
     html += `
       <label class="label">
@@ -9759,18 +9774,25 @@ function mnpBenefitChoiceHtml(
 
   }
 
-  if (hasCarrier("Y!mobile")) {
+  /* Y!mobile：信賞店はSIMのみの乗り換えでも月々サポートを選べる */
+
+  const ymSimMnp =
+    isSim &&
+    !!state.currentCarrier &&
+    !isSameCarrier("Y!mobile");
+
+  if (hasCarrier("Y!mobile") && (!isSim || ymSimMnp)) {
 
     html += `
       <label class="label">
-        Y!mobileの端末購入特典（MNP）
+        Y!mobileの${isSim ? "" : "端末購入"}特典（MNP）
       </label>
 
       <div class="choice-grid">
 
         ${makeChoice(
-          "買取ポイント 10,000pt",
-          "他社発売端末の買取（シンプル3 M/L）",
+          isSim ? "SIMのみMNP 20,000pt" : "買取ポイント 10,000pt",
+          isSim ? "増量オプション加入（シンプル3 M/L）" : "他社発売端末の買取（シンプル3 M/L）",
           "points",
           "ymBenefit",
           state.ymBenefit !== "monthly"
