@@ -2754,6 +2754,13 @@ const state = {
 
   auBenefit: "points",
 
+  /*
+   * カードを人数分発行するか（最後の一覧で切り替え）
+   * 例：{ "card:dカード GOLD": true }。ないカードは家族で1人分
+   */
+
+  multiCardIssue: {},
+
   /* SoftBankの端末MNP特典：なし(none)か月々サポート(monthly) */
 
   sbBenefit: "none",
@@ -6512,18 +6519,62 @@ function render() {
      * 同じ項目は名寄せして1件にまとめる。
      */
 
-    const todoSet = new Set();
+    /* 同じ項目は1件にまとめ、何人分か数える */
+
+    const todoCounts = {};
 
     people.forEach(p => {
 
       (p.todoLabels || []).forEach(label => {
-        todoSet.add(label);
+        todoCounts[label] = (todoCounts[label] || 0) + 1;
       });
 
     });
 
     const todoItems =
-      Array.from(todoSet);
+      Object.keys(todoCounts);
+
+    /* カードの新規発行は、人数分発行するかを切り替えられる */
+
+    const cardKindOf = label =>
+      Object.values(CARD_LABELS).some(name => label === name + " 新規発行")
+      ? "card:" + label.replace(/ 新規発行$/, "")
+      : null;
+
+    const todoRowHtml = label => {
+
+      const kind =
+        cardKindOf(label);
+
+      const multi =
+        !!(kind && state.multiCardIssue && state.multiCardIssue[kind]);
+
+      const count =
+        todoCounts[label];
+
+      return `
+        <div class="detail">
+          <span>
+            ${label}
+            ${multi && count > 1 ? `<b>×${count}枚（${count}人分）</b>` : ""}
+          </span>
+          ${
+            kind && people.length > 1
+            ? `
+              <button
+                type="button"
+                class="secondary multi-card-btn"
+                data-kind="${kind}"
+              >
+                ${multi ? "1枚に戻す" : "人数分発行する"}
+              </button>
+            `
+            : ""
+          }
+        </div>
+      `;
+
+    };
 
     /* ご家族全員分のノジマポイント・本日のお支払い */
 
@@ -6612,12 +6663,19 @@ function render() {
           todoItems.length
           ? `
             <div class="result">
-              ${todoItems.map(item => `
-                <div class="detail">
-                  <span>${item}</span>
-                </div>
-              `).join("")}
+              ${todoItems.map(todoRowHtml).join("")}
             </div>
+
+            ${
+              todoItems.some(cardKindOf) && people.length > 1
+              ? `
+                <div class="note">
+                  ※カードの新規発行のポイントは、ご家族で1人分として計算しています。
+                  ご家族それぞれが発行される場合は「人数分発行する」を押してください。
+                </div>
+              `
+              : ""
+            }
           `
           : `
             <div class="note">
@@ -7430,6 +7488,36 @@ function bindEvents() {
 
       }
     );
+
+    });
+
+
+  /* カードを人数分発行する／1枚に戻す（家族まとめ） */
+
+  document
+    .querySelectorAll(".multi-card-btn")
+    .forEach(button => {
+
+      button.addEventListener(
+        "click",
+        function() {
+
+          const kind =
+            this.dataset.kind;
+
+          state.multiCardIssue =
+            Object.assign({}, state.multiCardIssue || {});
+
+          state.multiCardIssue[kind] =
+            !state.multiCardIssue[kind];
+
+          state.finalSummaryPeople =
+            buildFinalSummaryPeople();
+
+          render();
+
+        }
+      );
 
     });
 
@@ -9307,13 +9395,22 @@ function pointPersonIndex() {
 }
 
 /*
- * 光回線・でんきの新規契約のポイントは、ご家族で1回分だけ。
- * 前のご家族がすでにそのポイントを受けていれば付けない
+ * 光回線・でんき・カードの新規のポイントは、ご家族で1回分だけ。
+ * 前のご家族がすでにそのポイントを受けていれば付けない。
+ * カードは、最後の一覧の「人数分発行する」で1人ずつに切り替えられる
  */
 
 function earlierPersonHasPoint(
   kind
 ) {
+
+  if (
+    kind.startsWith("card:") &&
+    state.multiCardIssue &&
+    state.multiCardIssue[kind]
+  ) {
+    return false;
+  }
 
   const me =
     pointPersonIndex();
@@ -9415,6 +9512,8 @@ function getPointInfo(
 
   const DENKI = () => ["denki", [denkiTodo(group)]];
 
+  const CARD = name => [cardTodo(name).key, [cardTodo(name)]];
+
   const OPTION = label => ({ key: "option:" + label, label: label });
 
   /* このプランに実際に付いた割引か（名前で判定） */
@@ -9500,9 +9599,9 @@ function getPointInfo(
   if (carrier === "docomo") {
 
     if (state.newCards.includes("dgold")) {
-      add("dカード GOLD 新規発行・支払い設定", 20000, null, [cardTodo("dカード GOLD")]);
+      add("dカード GOLD 新規発行・支払い設定", 20000, ...CARD("dカード GOLD"));
     } else if (state.newCards.includes("d")) {
-      add("dカード 新規発行・支払い設定", 5000, null, [cardTodo("dカード")]);
+      add("dカード 新規発行・支払い設定", 5000, ...CARD("dカード"));
     }
 
   }
@@ -9515,7 +9614,7 @@ function getPointInfo(
     (carrier === "au" || carrier === "UQ mobile") &&
     state.newCards.includes("augold")
   ) {
-    add("au PAY ゴールドカード 新規発行", 22000, null, [cardTodo("au PAY ゴールドカード")]);
+    add("au PAY ゴールドカード 新規発行", 22000, ...CARD("au PAY ゴールドカード"));
   }
 
   /* au：光セット（スマートバリュー加入）・auでんき */
@@ -9554,7 +9653,7 @@ function getPointInfo(
       plan.name === "コミコミプランバリュー" &&
       state.newCards.includes("augold")
     ) {
-      add("コミコミゴールド施策", 10000, null, [cardTodo("au PAY ゴールドカード")]);
+      add("コミコミゴールド施策", 10000, ...CARD("au PAY ゴールドカード"));
     }
 
     /*
@@ -10150,13 +10249,15 @@ function buildFinalSummaryPeople() {
     const extra =
       laterSameGroupLines(i, carrierGroup(snapshot.carrier), null);
 
-    if (extra <= 0) {
-      result.push(snapshot);
-      return;
-    }
+    /* カードの人数分発行の切り替えも反映するため、毎回計算し直す */
 
     const before =
       recalcPersonWithExtraLines(i, 0) || snapshot;
+
+    if (extra <= 0) {
+      result.push(before);
+      return;
+    }
 
     const after =
       recalcPersonWithExtraLines(i, extra);
@@ -10165,7 +10266,7 @@ function buildFinalSummaryPeople() {
       familyBoostText(before, after);
 
     if (!after || !text) {
-      result.push(snapshot);
+      result.push(before);
       return;
     }
 
