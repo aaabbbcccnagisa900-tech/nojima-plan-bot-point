@@ -5597,7 +5597,7 @@ function render() {
             金額を並べて比較できます。<br><br>
 
             MNP：分割リセット（無印・eモデルは前半24回が実質1円/月。<br>
-            iPhone 17 Proはドコモ2,980円・au2,200円、iPhone 18 Proはドコモ990円・au・SoftBank1円（条件付き）。<br>
+            iPhone 17 Proはドコモ2,980円・au2,200円、iPhone 18 Proはドコモ990円・au・SoftBank1円（条件付き。auはマネ活プラン＋au PAY ゴールドカード新規発行）。<br>
             それ以外は概算で月1,000円。返却で残額免除）<br>
             機種変更：通常分割（端末代を月々に加算）<br><br>
 
@@ -6912,6 +6912,50 @@ function render() {
 
           </div>
         `).join("")}
+
+
+        <button
+          type="button"
+          class="secondary full-width-btn"
+          id="familyConsultButton"
+        >
+          追加で家族をコンサルする
+        </button>
+
+        <div
+          id="inheritChoice"
+          class="result hidden"
+        >
+
+          <div class="plan-name">
+            カード・光回線・でんきの情報を引き継ぎますか？
+          </div>
+
+          <div class="note">
+            引き継ぐと、次の方はカード・光回線・でんきの質問を省略します
+          </div>
+
+          <div class="actions">
+
+            <button
+              type="button"
+              class="secondary inherit-btn"
+              data-inherit="no"
+            >
+              引き継がない
+            </button>
+
+            <button
+              type="button"
+              class="primary inherit-btn"
+              data-inherit="yes"
+            >
+              引き継ぐ
+            </button>
+
+          </div>
+
+        </div>
 
 
         <div class="actions">
@@ -8374,6 +8418,22 @@ function calculatePlans(
       isUpgrade(plan.carrier);
 
 
+    /*
+     * SIMのみの乗り換え：今と同じキャリアグループのプランは出さない
+     * （アップグレード UQ→au・Y!mobile→SoftBank は残す）
+     */
+
+    if (
+      scenario === "sim" &&
+      isSameCarrier(plan.carrier) &&
+      !upgrade
+    ) {
+
+      return;
+
+    }
+
+
     /* 機種変更 */
 
     if (
@@ -8935,6 +8995,17 @@ function calculatePlans(
           scenario === "mnp",
           plan.carrier
         );
+
+      /* auの18 Pro特別施策の条件を満たさないときは、概算の分割リセット月額 */
+
+      if (
+        scenario === "mnp" &&
+        plan.carrier === "au" &&
+        deviceName === "iPhone 18 Pro" &&
+        !isAu18ProSpecial()
+      ) {
+        device = deviceInfo.reset;
+      }
 
     }
 
@@ -9594,6 +9665,17 @@ function earlierPersonHasPoint(
 
 }
 
+/*
+ * auのiPhone 18 Pro 特別分割リセット施策（月1円・23,736pt）
+ * 条件：マネ活プラン加入＋au PAY ゴールドカード作成（18 Pro購入台数分）
+ */
+
+function isAu18ProSpecial() {
+
+  return state.newCards.includes("augold");
+
+}
+
 /* 1枚ごとにポイントが付くカード（人数分発行を選べる） */
 
 const PER_CARD_POINT_KINDS = [
@@ -9839,8 +9921,8 @@ function getPointInfo(
 
   } else if (carrier === "au") {
 
-    if (deviceName === "iPhone 18 Pro") {
-      add("iPhone 18 Pro 特別分割リセット施策", 23736);
+    if (deviceName === "iPhone 18 Pro" && isAu18ProSpecial()) {
+      add("iPhone 18 Pro 特別分割リセット施策", 23736, null, [{ key: "option:マネ活プラン加入", label: "マネ活プラン加入（iPhone 18 Pro特別施策）" }, cardTodo("au PAY ゴールドカード")]);
     } else if (upgrade) {
       add("au買取施策（アップグレード）", 22000);
     } else if (monthlySupportApplied) {
