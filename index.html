@@ -1144,43 +1144,6 @@ body.wide-step .container {
 
 
 <div
-  id="familyBoostModal"
-  class="modal center hidden"
-  role="dialog"
-  aria-modal="true"
-  aria-labelledby="familyBoostTitle"
->
-
-  <div class="modal-card">
-
-    <h2 id="familyBoostTitle">
-      ご家族の割引・ポイントが増えます
-    </h2>
-
-    <div id="familyBoostBody"></div>
-
-    <div class="note">
-      最後の一覧（コンサルを終了する）に反映されます。
-    </div>
-
-    <div class="actions">
-
-      <button
-        type="button"
-        class="primary"
-        id="familyBoostOk"
-      >
-        OK
-      </button>
-
-    </div>
-
-  </div>
-
-</div>
-
-
-<div
   id="feedbackModal"
   class="modal hidden"
   role="dialog"
@@ -2695,17 +2658,14 @@ function snapshotConsultation() {
     summaryRows: buildSummaryRows(),
 
     /*
-     * 実際に最終プランへ適用された割引のうち、
-     * ⚠️（新規発行・新規契約が必要）が付いたものだけを
-     * お手続きリストの対象にする。
-     * state.newCards / state.newHome をそのまま使うと、
-     * 最終プランに関係ないカードまで一覧に出てしまうため、
-     * 必ず discountLabels（このプラン専用の判定結果）から取る。
+     * お手続きが必要なもの：このプランに実際に付いた
+     * ⚠️の割引（カード新規発行・光・でんきの新規契約）と、
+     * ノジマポイントの条件（オプション加入・買取など）。
+     * state.newCards などをそのまま使うと、最終プランに
+     * 関係ないものまで出てしまうため、必ずプランの判定結果から取る
      */
 
-    todoLabels: best.discountLabels
-      .filter(l => l.includes("⚠️"))
-      .map(l => l.replace(/\s*⚠️\s*$/, "").trim())
+    todoLabels: (best.todos || []).map(todo => todo.label)
 
   };
 
@@ -3818,6 +3778,8 @@ function planResultCard(
 
       ${pointBoxHtml(plan)}
 
+      ${showSelectButton ? familyBoostCardHtml(plan) : ""}
+
       ${
         plan.discountLabels.some(l => l.includes("⚠️"))
         ? `
@@ -4179,8 +4141,11 @@ function updateInheritedTelop() {
   }
 
   if (
-    state.consultNumber <= 1 &&
-    !state.skipCardHomeSteps
+    (
+      state.consultNumber <= 1 &&
+      !state.skipCardHomeSteps
+    ) ||
+    state.step > 10
   ) {
 
     telop.classList.add("hidden");
@@ -4276,7 +4241,7 @@ function inheritedDetailHtml() {
 
     if (
       state.newHome === "yes" &&
-      !isDecided(label => /光セット|スマートバリュー|自宅セット割（▲/.test(label))
+      !isDecided(label => label.startsWith("光回線の新規契約"))
     ) {
 
       intentions.push(
@@ -4289,7 +4254,7 @@ function inheritedDetailHtml() {
 
     if (
       state.newDenkiWill === "yes" &&
-      !isDecided(label => label.includes("でんき"))
+      !isDecided(label => label.startsWith("でんきの新規申込"))
     ) {
 
       intentions.push(
@@ -4517,6 +4482,8 @@ function scrollToTopIfNewStep() {
 }
 
 function render() {
+
+  familyBoostCache = {};
 
   state.maxStepReached =
     Math.max(state.maxStepReached || 0, state.step);
@@ -7161,8 +7128,6 @@ function bindEvents() {
 
             render();
 
-            showFamilyBoost(found);
-
           }
 
         }
@@ -8323,12 +8288,26 @@ function calculatePlans(
       cardResult.amount;
 
 
+    /* お手続きが必要なもの（同じものは1つにまとめる） */
+
+    const todos = [];
+
+    const addTodo = todo => {
+      if (todo && !todos.some(t => t.key === todo.key)) {
+        todos.push(todo);
+      }
+    };
+
     if (cardResult.label) {
 
       discountLabels.push(
         cardResult.label + "（▲" + money(cardResult.amount) + "）"
         + (cardResult.isNew ? " ⚠️" : "")
       );
+
+      if (cardResult.isNew) {
+        addTodo(cardTodo(cardResult.label));
+      }
 
     }
 
@@ -8404,6 +8383,16 @@ function calculatePlans(
         + (homeResult.isNew ? " ⚠️" : "")
       );
 
+      /* au・UQの「自宅セット割（でんき）」はauでんきの新規申込 */
+
+      if (homeResult.isNew) {
+        addTodo(
+          homeResult.label === "自宅セット割（でんき）"
+          ? denkiTodo("au")
+          : homeTodo(carrierGroup(plan.carrier))
+        );
+      }
+
     }
 
 
@@ -8461,6 +8450,10 @@ function calculatePlans(
         + "（▲" + money(campaign.amount) + "）"
         + (continueCardIsNew ? " ⚠️" : "")
       );
+
+      if (continueCardIsNew) {
+        addTodo(cardTodo(CARD_LABELS[cardId]));
+      }
 
     }
 
@@ -8665,6 +8658,10 @@ function calculatePlans(
         + (state.docomoDenki !== "yes" ? " ⚠️" : "")
       );
 
+      if (state.docomoDenki !== "yes") {
+        addTodo(denkiTodo("docomo"));
+      }
+
     }
 
 
@@ -8808,6 +8805,20 @@ function calculatePlans(
         discountLabels
       );
 
+    /* ポイントの条件になっているお手続き */
+
+    if (pointInfo) {
+      pointInfo.items.forEach(item => {
+        (item.todos || []).forEach(addTodo);
+      });
+    }
+
+    /* 月々サポートはBYOD申込みが必要（SoftBank・Y!mobile） */
+
+    if (monthlySupport && monthlySupport.carrier !== "au") {
+      addTodo({ key: "byod", label: "BYOD申込み（月々サポート）" });
+    }
+
 
     result.push({
 
@@ -8861,6 +8872,9 @@ function calculatePlans(
 
       unavailable:
         unavailable,
+
+      todos:
+        todos,
 
       pointInfo:
         pointInfo,
@@ -9232,6 +9246,86 @@ const YM_POINT_PLANS = [
   "シンプル3 L"
 ];
 
+/*
+ * お手続きが必要なもの（key が同じものは家族で1つにまとめる）
+ * 光回線・でんきの新規契約は、ご家族で1回線（1契約）だけ
+ */
+
+function cardTodo(
+  cardName
+) {
+
+  return {
+    key: "card:" + cardName,
+    label: cardName + " 新規発行"
+  };
+
+}
+
+function homeTodo(
+  group
+) {
+
+  const name =
+    ({ docomo: "ドコモ光", au: "auひかり・コミュファ光・WiMAX", nifty: "nifty光", softbank: "SoftBank光・NURO光等" }[state.newHomeType]) ||
+    ({ docomo: "ドコモ光", au: "auひかり等", softbank: "SoftBank光等" }[group]) ||
+    "種類は未定";
+
+  return {
+    key: "home",
+    label: "光回線の新規契約（" + name + "）"
+  };
+
+}
+
+function denkiTodo(
+  group
+) {
+
+  const type =
+    newDenkiType(group);
+
+  return {
+    key: "denki",
+    label: "でんきの新規申込（" + (NEW_DENKI_NAMES[type] || "種類は未定") + "）"
+  };
+
+}
+
+/*
+ * ポイントを計算している人（家族コンサルで前の人を計算し直すときは、その人）
+ */
+
+let pointPersonOverride = null;
+
+function pointPersonIndex() {
+
+  return pointPersonOverride !== null
+    ? pointPersonOverride
+    : (state.currentPerson || 0);
+
+}
+
+/*
+ * 光回線・でんきの新規契約のポイントは、ご家族で1回分だけ。
+ * 前のご家族がすでにそのポイントを受けていれば付けない
+ */
+
+function earlierPersonHasPoint(
+  kind
+) {
+
+  const me =
+    pointPersonIndex();
+
+  return state.consultationHistory.some((snapshot, j) =>
+    snapshot &&
+    j < me &&
+    (snapshot.pointItems || []).some(item => item.kind === kind)
+  );
+
+}
+
 /* ポイントの対象になるMNPか（SIMのみは他社からの乗り換えのとき） */
 
 function isMnpForPoints(
@@ -9293,8 +9387,35 @@ function getPointInfo(
 
   const items = [];
 
-  const add = (label, points) =>
-    items.push({ label: label, points: points });
+  /*
+   * kind："home"（光回線の新規）・"denki"（でんきの新規）は
+   *   ご家族で1回分だけ（前のご家族が受けていれば付けない）
+   * todos：ポイントの条件になっているお手続き
+   */
+
+  const add = (label, points, kind, todos) => {
+
+    if (kind && earlierPersonHasPoint(kind)) {
+      return;
+    }
+
+    items.push({
+      label: label,
+      points: points,
+      kind: kind || null,
+      todos: todos || []
+    });
+
+  };
+
+  const group =
+    carrierGroup(carrier);
+
+  const HOME = () => ["home", [homeTodo(group)]];
+
+  const DENKI = () => ["denki", [denkiTodo(group)]];
+
+  const OPTION = label => ({ key: "option:" + label, label: label });
 
   /* このプランに実際に付いた割引か（名前で判定） */
 
@@ -9312,7 +9433,7 @@ function getPointInfo(
     /* SoftBank：チャリティスマイル加入＋ペイトク2／テイガク無制限 */
 
     if (carrier === "SoftBank" && plan.name === "テイガク無制限") {
-      add("SIMのみMNP（チャリティスマイル加入）", 10000);
+      add("SIMのみMNP（チャリティスマイル加入）", 10000, null, [OPTION("チャリティスマイル加入")]);
     }
 
     /* Y!mobile：増量オプション加入＋シンプル3 M/L */
@@ -9322,7 +9443,7 @@ function getPointInfo(
       if (monthlySupportApplied) {
         add("Y!mobile月々サポートを選択（ポイントなし）", 0);
       } else {
-        add("SIMのみMNP（増量オプション加入）", 20000);
+        add("SIMのみMNP（増量オプション加入）", 20000, null, [OPTION("増量オプション加入")]);
       }
 
     }
@@ -9366,7 +9487,7 @@ function getPointInfo(
     if (monthlySupportApplied) {
       add("Y!mobile月々サポートを選択（ポイントなし）", 0);
     } else if (YM_POINT_PLANS.includes(plan.name)) {
-      add("YM他社買取施策（他社発売端末の買取）", 10000);
+      add("YM他社買取施策（他社発売端末の買取）", 10000, null, [OPTION("増量オプション加入"), OPTION("他社発売端末の買取")]);
     }
 
   }
@@ -9379,9 +9500,9 @@ function getPointInfo(
   if (carrier === "docomo") {
 
     if (state.newCards.includes("dgold")) {
-      add("dカード GOLD 新規発行・支払い設定", 20000);
+      add("dカード GOLD 新規発行・支払い設定", 20000, null, [cardTodo("dカード GOLD")]);
     } else if (state.newCards.includes("d")) {
-      add("dカード 新規発行・支払い設定", 5000);
+      add("dカード 新規発行・支払い設定", 5000, null, [cardTodo("dカード")]);
     }
 
   }
@@ -9394,7 +9515,7 @@ function getPointInfo(
     (carrier === "au" || carrier === "UQ mobile") &&
     state.newCards.includes("augold")
   ) {
-    add("au PAY ゴールドカード 新規発行", 22000);
+    add("au PAY ゴールドカード 新規発行", 22000, null, [cardTodo("au PAY ゴールドカード")]);
   }
 
   /* au：光セット（スマートバリュー加入）・auでんき */
@@ -9402,11 +9523,11 @@ function getPointInfo(
   if (carrier === "au" && hasDiscount("auスマートバリュー")) {
 
     if (state.newHome === "yes" && state.newHomeType === "nifty") {
-      add("au光セット（nifty光）", 10000);
+      add("au光セット（nifty光）", 10000, ...HOME());
     }
 
     if (state.newHome === "yes" && state.newHomeType === "au") {
-      add("au光セット（auひかり・コミュファ・WiMAX）", 15000);
+      add("au光セット（auひかり・コミュファ・WiMAX）", 15000, ...HOME());
     }
 
   }
@@ -9416,11 +9537,11 @@ function getPointInfo(
   if (carrier === "au" || carrier === "UQ mobile") {
 
     if (newDenkiType("au") === "au") {
-      add("auでんき 申込", 10000);
+      add("auでんき 申込", 10000, ...DENKI());
     }
 
     if (newDenkiType("au") === "auAllElec") {
-      add("auでんき（オール電化）申込", 30000);
+      add("auでんき（オール電化）申込", 30000, ...DENKI());
     }
 
   }
@@ -9433,7 +9554,7 @@ function getPointInfo(
       plan.name === "コミコミプランバリュー" &&
       state.newCards.includes("augold")
     ) {
-      add("コミコミゴールド施策", 10000);
+      add("コミコミゴールド施策", 10000, null, [cardTodo("au PAY ゴールドカード")]);
     }
 
     /*
@@ -9465,17 +9586,17 @@ function getPointInfo(
       homeSetEligible &&
       newDenkiType("au") !== "none"
     ) {
-      add("自宅セット割＋でんき新規 施策", 5000);
+      add("自宅セット割＋でんき新規 施策", 5000, ...DENKI());
     }
 
     /* UQ光セット（光の新規契約＋自宅セット割） */
 
     if (homeSetEligible && state.newHome === "yes" && state.newHomeType === "nifty") {
-      add("UQ光セット（nifty光）", 10000);
+      add("UQ光セット（nifty光）", 10000, ...HOME());
     }
 
     if (homeSetEligible && state.newHome === "yes" && state.newHomeType === "au") {
-      add("UQ光セット（auひかり・コミュファ・WiMAX）", 15000);
+      add("UQ光セット（auひかり・コミュファ・WiMAX）", 15000, ...HOME());
     }
 
     /* 家族セット割（2回線以上） */
@@ -9495,13 +9616,13 @@ function getPointInfo(
       state.newHomeType === "docomo" &&
       state.homeCarrier !== "docomo"
     ) {
-      add("ドコモ光 同時申込", 20000);
+      add("ドコモ光 同時申込", 20000, ...HOME());
     }
 
     /* ドコモでんきの申込 */
 
     if (newDenkiType("docomo") === "docomo") {
-      add("ドコモでんき 申込", 20000);
+      add("ドコモでんき 申込", 20000, ...DENKI());
     }
 
     /* スマホデビュープランU15 */
@@ -9528,7 +9649,7 @@ function getPointInfo(
     /* でんきセット割：SoftBankでんき新規加入 */
 
     if (newDenkiType("softbank") === "softbank") {
-      add("SoftBankでんき 新規加入", 5000);
+      add("SoftBankでんき 新規加入", 5000, ...DENKI());
     }
 
   }
@@ -9546,13 +9667,13 @@ function getPointInfo(
       state.homeCarrier !== "softbank" &&
       YM_POINT_PLANS.includes(plan.name)
     ) {
-      add("YM光セット割施策（SoftBank光 同時加入）", 15000);
+      add("YM光セット割施策（SoftBank光 同時加入）", 15000, ...HOME());
     }
 
     /* でんきセット割：SoftBankでんき新規加入 */
 
     if (newDenkiType("softbank") === "softbank") {
-      add("SoftBankでんき 新規加入", 5000);
+      add("SoftBankでんき 新規加入", 5000, ...DENKI());
     }
 
     /* 家族複数：シンプル3 M/L＋増量オプション＋家族割加入（家族・友人の紹介） */
@@ -9561,7 +9682,7 @@ function getPointInfo(
       hasDiscount("家族割") &&
       YM_POINT_PLANS.includes(plan.name)
     ) {
-      add("YM家族複数施策（紹介キャンペーン）", 10000);
+      add("YM家族複数施策（紹介キャンペーン）", 10000, null, [OPTION("増量オプション加入"), OPTION("家族・友人の紹介（紹介キャンペーン）")]);
     }
 
   }
@@ -9844,11 +9965,16 @@ function withPersonState(
     live[key] = state[key];
   });
 
+  const liveOverride =
+    pointPersonOverride;
+
   try {
 
     PERSON_KEYS.forEach(key => {
       state[key] = clonePersonValue(saved[key]);
     });
+
+    pointPersonOverride = index;
 
     return fn();
 
@@ -9857,6 +9983,8 @@ function withPersonState(
     PERSON_KEYS.forEach(key => {
       state[key] = live[key];
     });
+
+    pointPersonOverride = liveOverride;
 
   }
 
@@ -10053,10 +10181,14 @@ function buildFinalSummaryPeople() {
 }
 
 /*
- * 2人目以降のプラン選択：前の人の家族割・ポイントが増えるならPOPで知らせる
+ * 2人目以降のプラン選択：このプランを選ぶと前のご家族の
+ * 家族割・ポイントが増える場合、プランのカードに書く
+ * （同じキャリアグループなら同じ内容なので、表示のたびに1回だけ計算）
  */
 
-function showFamilyBoost(
+let familyBoostCache = {};
+
+function familyBoostCardHtml(
   plan
 ) {
 
@@ -10067,12 +10199,15 @@ function showFamilyBoost(
     carrierGroup(plan.carrier);
 
   if (!group || current === 0) {
-    return;
+    return "";
   }
 
-  /* 前の人の計算に使うため、今の人の入力内容を保存しておく */
+  const cacheKey =
+    group + ":" + lineCount();
 
-  storeCurrentPerson();
+  if (familyBoostCache[cacheKey] !== undefined) {
+    return familyBoostCache[cacheKey];
+  }
 
   const override = {
     index: current,
@@ -10092,65 +10227,42 @@ function showFamilyBoost(
       return;
     }
 
-    const without =
-      laterSameGroupLines(i, group, Object.assign({}, override, { lines: 0 }));
-
-    const withCurrent =
-      laterSameGroupLines(i, group, override);
-
     const before =
-      recalcPersonWithExtraLines(i, without);
+      recalcPersonWithExtraLines(
+        i,
+        laterSameGroupLines(i, group, Object.assign({}, override, { lines: 0 }))
+      );
 
     const after =
-      recalcPersonWithExtraLines(i, withCurrent);
+      recalcPersonWithExtraLines(
+        i,
+        laterSameGroupLines(i, group, override)
+      );
 
     const text =
       familyBoostText(before, after);
 
     if (text) {
-      messages.push(`
-        <div class="result">
-          <div class="plan-name">${personTitle(i, snapshot)}　${snapshot.carrier} ${snapshot.planName}</div>
-          <div class="good">${text}</div>
-        </div>
-      `);
+      messages.push(
+        "<b>" + personTitle(i, snapshot) + "</b>（" + snapshot.carrier + " " + snapshot.planName + "）<br>" + text
+      );
     }
 
   });
 
-  if (!messages.length) {
-    return;
-  }
+  const html =
+    messages.length
+    ? `
+      <div class="good">
+        👪 このプランを選ぶと、ご家族の割引・ポイントが増えます<br>
+        ${messages.join("<br>")}
+      </div>
+    `
+    : "";
 
-  document.getElementById("familyBoostBody").innerHTML =
-    `<p class="description">${planLabel(plan.carrier, plan.name)}を選ぶと、同じキャリアのご家族の割引・ポイントが増えます</p>` +
-    messages.join("");
+  familyBoostCache[cacheKey] = html;
 
-  document
-    .getElementById("familyBoostModal")
-    .classList.remove("hidden");
-
-}
-
-function setupFamilyBoostModal() {
-
-  const modal =
-    document.getElementById("familyBoostModal");
-
-  const close = () =>
-    modal.classList.add("hidden");
-
-  document
-    .getElementById("familyBoostOk")
-    .addEventListener("click", close);
-
-  modal.addEventListener("click", function(e) {
-
-    if (e.target === this) {
-      close();
-    }
-
-  });
+  return html;
 
 }
 
@@ -10781,7 +10893,6 @@ function setupFeedback() {
 
   setupJumpModal();
 
-  setupFamilyBoostModal();
 
   setupInheritedTelop();
 
