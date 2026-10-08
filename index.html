@@ -1152,6 +1152,41 @@ body.wide-step .container {
 
 
 <div
+  id="cardIssueModal"
+  class="modal center hidden"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="cardIssueTitle"
+>
+
+  <div class="modal-card">
+
+    <h2 id="cardIssueTitle"></h2>
+
+    <p class="description">
+      発行する枚数を選んでください。ポイントは1枚ごとに付きます。
+    </p>
+
+    <div class="choice-grid" id="cardIssueChoices"></div>
+
+    <div class="actions">
+
+      <button
+        type="button"
+        class="secondary"
+        id="cardIssueCancel"
+      >
+        キャンセル
+      </button>
+
+    </div>
+
+  </div>
+
+</div>
+
+
+<div
   id="feedbackModal"
   class="modal hidden"
   role="dialog"
@@ -1923,6 +1958,12 @@ function newDenkiType(
     return "none";
   }
 
+  /* でんきの新規はご家族で1契約（前のご家族が別キャリアで使っていれば不可） */
+
+  if (!claimAllows("denki", group)) {
+    return "none";
+  }
+
   const type =
     state.newDenki || "undecided";
 
@@ -2673,7 +2714,20 @@ function snapshotConsultation() {
      * 関係ないものまで出てしまうため、必ずプランの判定結果から取る
      */
 
-    todoLabels: (best.todos || []).map(todo => todo.label)
+    todoLabels: (best.todos || []).map(todo => todo.label),
+
+    /* 光・でんきの新規契約を使ったキャリアグループ（ご家族で1契約） */
+
+    claims: (best.todos || []).reduce((claims, todo) => {
+      if ((todo.key === "home" || todo.key === "denki") && todo.group) {
+        claims[todo.key] = todo.group;
+      }
+      return claims;
+    }, {}),
+
+    /* 1枚・1件ごとのポイントの種類（人数分発行の判定に使う） */
+
+    group: carrierGroup(best.carrier)
 
   };
 
@@ -4160,7 +4214,7 @@ function updateInheritedTelop() {
       state.consultNumber <= 1 &&
       !state.skipCardHomeSteps
     ) ||
-    state.step > 10
+    state.step >= 14
   ) {
 
     telop.classList.add("hidden");
@@ -6549,32 +6603,52 @@ function render() {
       ? "card:" + label.replace(/ 新規発行$/, "")
       : null;
 
+    /*
+     * 1枚ごとにポイントが付くカード（au PAY ゴールドカード 22,000pt/枚）は、
+     * 同じキャリアのご家族が2人以上いるときだけ、何枚発行するか選べる。
+     * dカードは台当たりなので、1枚で同じキャリアのご家族全員にポイントが付く
+     */
+
+    const sameCarrierCount = label =>
+      people.filter(p => (p.todoLabels || []).includes(label)).length;
+
+    const issuedCount = kind =>
+      state.multiCardIssue &&
+      typeof state.multiCardIssue[kind] === "number"
+      ? state.multiCardIssue[kind]
+      : 1;
+
     const todoRowHtml = label => {
 
       const kind =
         cardKindOf(label);
 
-      const multi =
-        !!(kind && state.multiCardIssue && state.multiCardIssue[kind]);
+      const perCard =
+        kind && PER_CARD_POINT_KINDS.includes(kind);
 
       const count =
-        todoCounts[label];
+        sameCarrierCount(label);
+
+      const issued =
+        perCard ? Math.min(issuedCount(kind), count) : 1;
 
       return `
         <div class="detail">
           <span>
             ${label}
-            ${multi && count > 1 ? `<b>×${count}枚（${count}人分）</b>` : ""}
+            ${issued > 1 ? `<b>×${issued}枚（${issued}人分）</b>` : ""}
           </span>
           ${
-            kind && people.length > 1
+            perCard && count > 1
             ? `
               <button
                 type="button"
                 class="secondary multi-card-btn"
                 data-kind="${kind}"
+                data-max="${count}"
+                data-label="${label}"
               >
-                ${multi ? "1枚に戻す" : "人数分発行する"}
+                人数分発行する
               </button>
             `
             : ""
@@ -6675,11 +6749,23 @@ function render() {
             </div>
 
             ${
-              todoItems.some(cardKindOf) && people.length > 1
+              todoItems.some(label => PER_CARD_POINT_KINDS.includes(cardKindOf(label)) && sameCarrierCount(label) > 1)
               ? `
                 <div class="note">
-                  ※カードの新規発行のポイントは、ご家族で1人分として計算しています。
-                  ご家族それぞれが発行される場合は「人数分発行する」を押してください。
+                  ※au PAY ゴールドカードのポイントは1枚ごと（22,000pt/枚）のため、
+                  1枚分で計算しています。同じキャリアのご家族それぞれが発行される場合は
+                  「人数分発行する」で枚数を選んでください。
+                </div>
+              `
+              : ""
+            }
+
+            ${
+              todoItems.some(label => label === "dカード GOLD 新規発行" || label === "dカード 新規発行") &&
+              people.filter(p => p.group === "docomo").length > 1
+              ? `
+                <div class="note">
+                  ※dカードのポイントは台当たりのため、1枚の発行で同じキャリア（ドコモ・ahamo）のご家族全員に付きます。
                 </div>
               `
               : ""
@@ -7423,10 +7509,18 @@ function bindEvents() {
         state.averageGB = null;
         state.maxGB = null;
 
+        /*
+         * 家族割の回線数は未選択から。前のご家族が決定したキャリアだけ
+         * 「決定済みの人数＋ご本人」を選んだ状態にする
+         */
+
+        const priorOrNull = n =>
+          n > 0 ? Math.min(n + 1, 3) : null;
+
         state.familyCounts = {
-          docomo: Math.min(priorCounts.docomo + 1, 3),
-          au: Math.min(priorCounts.au + 1, 3),
-          softbank: Math.min(priorCounts.softbank + 1, 3)
+          docomo: priorOrNull(priorCounts.docomo),
+          au: priorOrNull(priorCounts.au),
+          softbank: priorOrNull(priorCounts.softbank)
         };
 
         state.isSenior = null;
@@ -7467,12 +7561,6 @@ function bindEvents() {
           state.auDenki = kept.auDenki;
           state.docomoDenki = kept.docomoDenki;
 
-          state.familyCounts = {
-            docomo: Math.min(Math.max(kept.familyCounts.docomo, priorCounts.docomo + 1), 3),
-            au: Math.min(Math.max(kept.familyCounts.au, priorCounts.au + 1), 3),
-            softbank: Math.min(Math.max(kept.familyCounts.softbank, priorCounts.softbank + 1), 3)
-          };
-
           state.skipCardHomeSteps = true;
 
         } else {
@@ -7500,7 +7588,7 @@ function bindEvents() {
     });
 
 
-  /* カードを人数分発行する／1枚に戻す（家族まとめ） */
+  /* カードを人数分発行する（家族まとめ）：何枚発行するかPOPで選ぶ */
 
   document
     .querySelectorAll(".multi-card-btn")
@@ -7510,19 +7598,11 @@ function bindEvents() {
         "click",
         function() {
 
-          const kind =
-            this.dataset.kind;
-
-          state.multiCardIssue =
-            Object.assign({}, state.multiCardIssue || {});
-
-          state.multiCardIssue[kind] =
-            !state.multiCardIssue[kind];
-
-          state.finalSummaryPeople =
-            buildFinalSummaryPeople();
-
-          render();
+          openCardIssueModal(
+            this.dataset.kind,
+            this.dataset.label,
+            Number(this.dataset.max)
+          );
 
         }
       );
@@ -9369,6 +9449,7 @@ function homeTodo(
 
   return {
     key: "home",
+    group: group,
     label: "光回線の新規契約（" + name + "）"
   };
 
@@ -9383,6 +9464,7 @@ function denkiTodo(
 
   return {
     key: "denki",
+    group: group,
     label: "でんきの新規申込（" + (NEW_DENKI_NAMES[type] || "種類は未定") + "）"
   };
 
@@ -9403,31 +9485,163 @@ function pointPersonIndex() {
 }
 
 /*
- * 光回線・でんき・カードの新規のポイントは、ご家族で1回分だけ。
- * 前のご家族がすでにそのポイントを受けていれば付けない。
- * カードは、最後の一覧の「人数分発行する」で1人ずつに切り替えられる
+ * 光回線・でんきの新規契約は、ご家族で1契約だけ。
+ * 前のご家族の最終プランで新規契約を使っていれば、そのキャリアグループを返す
+ * （ほかのキャリアの光・でんきは新規契約できない扱いにする）
+ */
+
+function householdClaim(
+  key
+) {
+
+  const me =
+    pointPersonIndex();
+
+  for (let j = 0; j < me; j++) {
+
+    const snapshot =
+      state.consultationHistory[j];
+
+    if (snapshot && snapshot.claims && snapshot.claims[key]) {
+      return snapshot.claims[key];
+    }
+
+  }
+
+  return null;
+
+}
+
+function claimAllows(
+  key,
+  group
+) {
+
+  const claimed =
+    householdClaim(key);
+
+  return !claimed || claimed === group;
+
+}
+
+/*
+ * 1枚・1件ごとのポイント（au PAY ゴールドカード 22,000pt/枚、
+ * auでんき 10,000pt/件など）は、ご家族で決めた枚数・件数分だけ。
+ * 台当たりのポイント（dカード・ドコモでんき・光セットなど）は全員に付く。
+ * 枚数は最後の一覧の「人数分発行する」で変えられる（通常は1）
  */
 
 function earlierPersonHasPoint(
   kind
 ) {
 
-  if (
-    kind.startsWith("card:") &&
+  const allowed =
     state.multiCardIssue &&
-    state.multiCardIssue[kind]
-  ) {
-    return false;
-  }
+    typeof state.multiCardIssue[kind] === "number"
+    ? state.multiCardIssue[kind]
+    : 1;
 
   const me =
     pointPersonIndex();
 
-  return state.consultationHistory.some((snapshot, j) =>
-    snapshot &&
-    j < me &&
-    (snapshot.pointItems || []).some(item => item.kind === kind)
-  );
+  const used =
+    state.consultationHistory.filter((snapshot, j) =>
+      snapshot &&
+      j < me &&
+      (snapshot.pointItems || []).some(item => item.kind === kind)
+    ).length;
+
+  return used >= allowed;
+
+}
+
+/* 1枚ごとにポイントが付くカード（人数分発行を選べる） */
+
+const PER_CARD_POINT_KINDS = [
+  "card:au PAY ゴールドカード"
+];
+
+/* カードを何枚発行するか選ぶPOP（家族まとめ） */
+
+function openCardIssueModal(
+  kind,
+  label,
+  max
+) {
+
+  const current =
+    state.multiCardIssue &&
+    typeof state.multiCardIssue[kind] === "number"
+    ? state.multiCardIssue[kind]
+    : 1;
+
+  document.getElementById("cardIssueTitle").textContent =
+    "同じキャリアのご家族の人数分、" + label.replace(/ 新規発行$/, "") + "を発行しますか？";
+
+  document.getElementById("cardIssueChoices").innerHTML =
+    Array.from({ length: max }, (_, i) => i + 1).map(n => `
+      <button
+        type="button"
+        class="choice ${n === Math.min(current, max) ? "selected" : ""} card-issue-choice"
+        data-count="${n}"
+      >
+        <span class="choice-title">${n}枚</span>
+        <span class="choice-sub">${n === 1 ? "1人だけ発行" : n + "人分発行"}</span>
+      </button>
+    `).join("");
+
+  document
+    .querySelectorAll(".card-issue-choice")
+    .forEach(button => {
+
+      button.addEventListener("click", function() {
+
+        state.multiCardIssue =
+          Object.assign({}, state.multiCardIssue || {});
+
+        state.multiCardIssue[kind] =
+          Number(this.dataset.count);
+
+        closeCardIssueModal();
+
+        state.finalSummaryPeople =
+          buildFinalSummaryPeople();
+
+        render();
+
+      });
+
+    });
+
+  document
+    .getElementById("cardIssueModal")
+    .classList.remove("hidden");
+
+}
+
+function closeCardIssueModal() {
+
+  document
+    .getElementById("cardIssueModal")
+    .classList.add("hidden");
+
+}
+
+function setupCardIssueModal() {
+
+  document
+    .getElementById("cardIssueCancel")
+    .addEventListener("click", closeCardIssueModal);
+
+  document
+    .getElementById("cardIssueModal")
+    .addEventListener("click", function(e) {
+
+      if (e.target === this) {
+        closeCardIssueModal();
+      }
+
+    });
 
 }
 
@@ -9498,16 +9712,25 @@ function getPointInfo(
    * todos：ポイントの条件になっているお手続き
    */
 
-  const add = (label, points, kind, todos) => {
+  /*
+   * rule.claim："home"・"denki"（ご家族で1契約。別キャリアで使っていれば付けない）
+   * rule.once：1枚・1件ごとのポイント（ご家族で決めた枚数分だけ）
+   */
 
-    if (kind && earlierPersonHasPoint(kind)) {
+  const add = (label, points, rule, todos) => {
+
+    if (rule && rule.claim && !claimAllows(rule.claim, group)) {
+      return;
+    }
+
+    if (rule && rule.once && earlierPersonHasPoint(rule.once)) {
       return;
     }
 
     items.push({
       label: label,
       points: points,
-      kind: kind || null,
+      kind: (rule && rule.once) || null,
       todos: todos || []
     });
 
@@ -9516,11 +9739,19 @@ function getPointInfo(
   const group =
     carrierGroup(carrier);
 
-  const HOME = () => ["home", [homeTodo(group)]];
+  /* 台当たり：光セット・ドコモでんき・SoftBankでんき・dカード */
 
-  const DENKI = () => ["denki", [denkiTodo(group)]];
+  const HOME = () => [{ claim: "home" }, [homeTodo(group)]];
 
-  const CARD = name => [cardTodo(name).key, [cardTodo(name)]];
+  const DENKI = () => [{ claim: "denki" }, [denkiTodo(group)]];
+
+  const CARD = name => [null, [cardTodo(name)]];
+
+  /* 1件・1枚ごと：auでんき（/件）・au PAY ゴールドカード（/枚） */
+
+  const DENKI_ONCE = () => [{ claim: "denki", once: "denki:au" }, [denkiTodo(group)]];
+
+  const CARD_ONCE = name => [{ once: cardTodo(name).key }, [cardTodo(name)]];
 
   const OPTION = label => ({ key: "option:" + label, label: label });
 
@@ -9622,7 +9853,7 @@ function getPointInfo(
     (carrier === "au" || carrier === "UQ mobile") &&
     state.newCards.includes("augold")
   ) {
-    add("au PAY ゴールドカード 新規発行", 22000, ...CARD("au PAY ゴールドカード"));
+    add("au PAY ゴールドカード 新規発行", 22000, ...CARD_ONCE("au PAY ゴールドカード"));
   }
 
   /* au：光セット（スマートバリュー加入）・auでんき */
@@ -9644,11 +9875,11 @@ function getPointInfo(
   if (carrier === "au" || carrier === "UQ mobile") {
 
     if (newDenkiType("au") === "au") {
-      add("auでんき 申込", 10000, ...DENKI());
+      add("auでんき 申込", 10000, ...DENKI_ONCE());
     }
 
     if (newDenkiType("au") === "auAllElec") {
-      add("auでんき（オール電化）申込", 30000, ...DENKI());
+      add("auでんき（オール電化）申込", 30000, ...DENKI_ONCE());
     }
 
   }
@@ -9661,7 +9892,7 @@ function getPointInfo(
       plan.name === "コミコミプランバリュー" &&
       state.newCards.includes("augold")
     ) {
-      add("コミコミゴールド施策", 10000, ...CARD("au PAY ゴールドカード"));
+      add("コミコミゴールド施策", 10000, ...CARD_ONCE("au PAY ゴールドカード"));
     }
 
     /*
@@ -10608,6 +10839,7 @@ function getHomeDiscount(
   };
 
   const willingToGet =
+    claimAllows("home", group) &&
     state.newHome === "yes" &&
     (NEW_HOME_GROUPS[state.newHomeType || "undecided"] || []).includes(group);
 
@@ -11001,6 +11233,8 @@ function setupFeedback() {
   setupFeedback();
 
   setupJumpModal();
+
+  setupCardIssueModal();
 
 
   setupInheritedTelop();
