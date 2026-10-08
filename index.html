@@ -5035,6 +5035,30 @@ function render() {
 
         ${studentAgeQuestionHtml()}
 
+        ${
+          state.skipCardHomeSteps
+          ? `
+            <label class="label">
+              同一電話番号でのご利用期間（ドコモ）
+            </label>
+
+            <p class="description">
+              カード・光・でんきの質問を引き継いで省略しているため、こちらでお選びください
+            </p>
+
+            <div class="choice-grid three">
+
+              ${makeChoice("10年未満", "", "none", "docomoYears", state.docomoYears === "none")}
+
+              ${makeChoice("10年以上", "▲110円", "10", "docomoYears", state.docomoYears === "10")}
+
+              ${makeChoice("20年以上", "▲220円", "20", "docomoYears", state.docomoYears === "20")}
+
+            </div>
+          `
+          : ""
+        }
+
         ${actions()}
 
       </section>
@@ -8056,6 +8080,21 @@ function nextStep() {
 
       alert(
         "学割の対象年齢をお選びください。"
+      );
+
+      return;
+
+    }
+
+    /* 引き継ぎでカード・光・でんきのページを飛ばす人は、ここでドコモの利用期間を聞く */
+
+    if (
+      state.skipCardHomeSteps &&
+      !state.docomoYears
+    ) {
+
+      alert(
+        "同一電話番号でのご利用期間（ドコモ）をお選びください。"
       );
 
       return;
