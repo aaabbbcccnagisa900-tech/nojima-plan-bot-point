@@ -11270,6 +11270,7 @@ const FEEDBACK_FIELDS = {
   type: "entry.217554587",
   text: "entry.466475403",
   name: "entry.1257088145",
+  store: "entry.786830716",
   screen: "entry.1547427648",
   device: "entry.1051576685"
 };
@@ -11427,11 +11428,12 @@ function sendFeedback() {
   const storeInput =
     document.getElementById("feedbackStore");
 
-  /* フォームの報告者欄は1つなので「店舗名／名前」にまとめて送る（どちらも任意） */
+  /* 店舗名はフォームの「店舗」、名前は「報告者」へ（どちらも任意） */
   const name =
-    [storeInput.value.trim(), nameInput.value.trim()]
-      .filter(Boolean)
-      .join("／");
+    nameInput.value.trim();
+
+  const store =
+    storeInput.value.trim();
 
   const body =
     new URLSearchParams();
@@ -11439,6 +11441,7 @@ function sendFeedback() {
   body.append(FEEDBACK_FIELDS.type, feedbackType);
   body.append(FEEDBACK_FIELDS.text, text);
   body.append(FEEDBACK_FIELDS.name, name);
+  body.append(FEEDBACK_FIELDS.store, store);
   body.append(FEEDBACK_FIELDS.screen, feedbackContextText());
   body.append(
     FEEDBACK_FIELDS.device,
