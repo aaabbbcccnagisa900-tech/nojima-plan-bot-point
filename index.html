@@ -2665,7 +2665,7 @@ function buildSummaryRows() {
     ["新規発行するカード", cardListText(state.newCards)],
 
     ["現在契約中の光回線",
-      { docomo: "ドコモ光", au: "auひかり等", softbank: "SoftBank光等", none: "なし・その他" }[state.homeCarrier]
+      { docomo: "ドコモ光", au: "auひかり・ニフティ光・J:COM等", softbank: "SoftBank光等", none: "なし・その他" }[state.homeCarrier]
     ],
     ["光回線の新規契約意思", state.newHome === "yes" ? "検討する" : "変更しない"],
     ["新規契約する光回線",
@@ -2681,8 +2681,10 @@ function buildSummaryRows() {
     ["au：固定電話", state.auHomePhone === "yes" ? "契約している/する予定" : "契約していない"],
     ["auでんき", state.auDenki === "yes" ? "利用中" : "利用していない"],
     ["ドコモでんき", state.docomoDenki === "yes" ? "利用中" : "利用していない"],
-    ["ドコモ利用年数",
-      { none: "10年未満", "10": "10年以上", "20": "20年以上" }[state.docomoYears]
+    ["ドコモ利用期間",
+      isDocomoUser()
+      ? { none: "10年未満", "10": "10年以上", "20": "20年以上" }[state.docomoYears]
+      : "対象外（ドコモ・ahamo以外）"
     ]
 
   ];
@@ -4278,7 +4280,7 @@ function buildInheritedSummary() {
 
   const homeNames = {
     docomo: "ドコモ光",
-    au: "auひかり等",
+    au: "auひかり・ニフティ光・J:COM等",
     softbank: "SoftBank光等"
   };
 
@@ -4466,7 +4468,7 @@ function inheritedDetailHtml() {
       row("お使いのカード", cardListText(state.currentCards)) +
       row(
         "現在契約中の光回線",
-        { docomo: "ドコモ光", au: "auひかり等", softbank: "SoftBank光等", none: "なし・その他" }[state.homeCarrier]
+        { docomo: "ドコモ光", au: "auひかり・ニフティ光・J:COM等", softbank: "SoftBank光等", none: "なし・その他" }[state.homeCarrier]
       ) +
       row("au：固定電話", state.auHomePhone === "yes" ? "契約している/する予定" : "契約していない") +
       row("auでんき", state.auDenki === "yes" ? "利用中" : "利用していない") +
@@ -5149,10 +5151,11 @@ function render() {
         ${studentAgeQuestionHtml()}
 
         ${
-          state.skipCardHomeSteps
+          state.skipCardHomeSteps &&
+          isDocomoUser()
           ? `
             <label class="label">
-              同一電話番号でのご利用期間（ドコモ）
+              ドコモのご利用期間（ahamo含む）
             </label>
 
             <p class="description">
@@ -5385,8 +5388,8 @@ function render() {
           )}
 
           ${makeChoice(
-            "auひかり等（au系）",
-            "",
+            "auひかり・ニフティ光・J:COM等（au系）",
+            "auスマートバリュー／自宅セット割対象",
             "au",
             "homeCarrier",
             state.homeCarrier === "au"
@@ -5461,7 +5464,7 @@ function render() {
 
         <div class="note">
           ※ドコモ光セット割は固定電話が不要で、三親等以内の家族なら最大20回線までシェア可能です。<br>
-          ※auスマートバリュー／おうち割光セットは、対象のネット回線＋固定電話のセットが原則条件で、家族含め最大10回線までシェア可能です（対象回線：auひかり・コミュファ光・eo光・ケーブルテレビ・光コラボ・ホームルーター等／SoftBank光・NURO光・SoftBank Air等）。
+          ※auスマートバリュー／おうち割光セットは、対象のネット回線＋固定電話のセットが原則条件で、家族含め最大10回線までシェア可能です（対象回線：auひかり・ニフティ光・J:COM・コミュファ光・eo光・ケーブルテレビ・光コラボ・ホームルーター等／SoftBank光・NURO光・SoftBank Air等）。
         </div>
 
 
@@ -5588,9 +5591,16 @@ function render() {
         }
 
 
+        ${
+          isDocomoUser()
+          ? `
         <label class="label">
-          同一電話番号でのご利用期間（ドコモ）
+          ドコモのご利用期間（ahamo含む）
         </label>
+
+        <p class="description">
+          電話番号ではなく、ドコモ（ahamo含む）を何年続けて契約しているかです
+        </p>
 
         <div class="choice-grid three">
 
@@ -5619,6 +5629,9 @@ function render() {
           )}
 
         </div>
+          `
+          : ""
+        }
 
         ${actions()}
 
@@ -7354,6 +7367,7 @@ function bindEvents() {
               state.currentCarrier !== value
             ) {
               state.upgradeEligible = null;
+              state.docomoYears = null;
             }
 
             state[key] = value;
@@ -8259,11 +8273,12 @@ function nextStep() {
 
     if (
       state.skipCardHomeSteps &&
+      isDocomoUser() &&
       !state.docomoYears
     ) {
 
       alert(
-        "同一電話番号でのご利用期間（ドコモ）をお選びください。"
+        "ドコモのご利用期間（ahamo含む）をお選びください。"
       );
 
       return;
@@ -8326,7 +8341,7 @@ function nextStep() {
       ["auHomePhone", "au：固定電話のセット契約について", true],
       ["auDenki", "auでんき", true],
       ["docomoDenki", "ドコモでんき", true],
-      ["docomoYears", "同一電話番号でのご利用期間（ドコモ）", true]
+      ["docomoYears", "ドコモのご利用期間（ahamo含む）", isDocomoUser()]
     ];
 
     const missing =
@@ -9069,6 +9084,7 @@ function calculatePlans(
 
     if (
       plan.longTermDiscount &&
+      isDocomoUser() &&
       state.docomoYears !== "none"
     ) {
 
@@ -9446,6 +9462,15 @@ function getCandidateGroupsForScenario(
    「その他」やnullは常に別グループ扱い。
 ========================================================= */
 
+/* 長期利用割は、ドコモ（ahamo含む）を今使っている人だけが対象 */
+
+function isDocomoUser() {
+
+  return carrierGroup(state.currentCarrier) === "docomo";
+
+}
+
+
 function carrierGroup(
   carrier
 ) {
@@ -9679,7 +9704,7 @@ function homeTodo(
 
   const name =
     ({ docomo: "ドコモ光", au: "auひかり・コミュファ光・WiMAX", nifty: "nifty光", softbank: "SoftBank光・NURO光等" }[state.newHomeType]) ||
-    ({ docomo: "ドコモ光", au: "auひかり等", softbank: "SoftBank光等" }[group]) ||
+    ({ docomo: "ドコモ光", au: "auひかり・ニフティ光・J:COM等", softbank: "SoftBank光等" }[group]) ||
     "種類は未定";
 
   return {
